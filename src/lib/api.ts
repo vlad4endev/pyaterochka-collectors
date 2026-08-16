@@ -8,6 +8,7 @@ export type Period = {
   storeTotalRub: number;
   rate: number;
   status: "open" | "closed";
+  settledAt: number | null;
 };
 
 export type Collector = {
@@ -52,15 +53,50 @@ export type PaymentRow = {
   hasTelegram: boolean;
 };
 
+export type MissingReport = {
+  collectorId: string;
+  collectorName: string;
+  dates: string[];
+};
+
+export type SettlementMismatch = {
+  collectedKg: number;
+  collectedRub: number;
+  storeKg: number;
+  storeRub: number;
+  diffKg: number;
+  diffRub: number;
+  missing: MissingReport[];
+  pending: MissingReport[];
+};
+
+export type InvoiceSkip = {
+  collectorName: string;
+  reason: string;
+};
+
 export type Settlement = {
   periodId: string;
   startDate: string;
   endDate: string;
   rate: number;
+  settled: boolean;
+  storeTotalRub?: number;
   rows: PaymentRow[];
   totalKg: number;
   totalRub: number;
-  text: string;
+  missing?: MissingReport[];
+  pending?: MissingReport[];
+  text?: string;
+  invoices?: {
+    sent: number;
+    skipped: InvoiceSkip[];
+  };
+};
+
+export type MarkPaidResult = {
+  settlement: Settlement;
+  periodClosed: boolean;
 };
 
 export type Settings = {
@@ -152,6 +188,7 @@ export type Dashboard = {
   rate: number;
   storeTotalRub: number;
   status: "open" | "closed";
+  settled: boolean;
   confirmedKg: number;
   confirmedRub: number;
   expectedKg: number;
@@ -253,14 +290,18 @@ export const api = {
   payments: {
     list: (token: string, periodId: string) =>
       apiRequest<PaymentRow[]>(`/payments?periodId=${encodeURIComponent(periodId)}`, { token }),
-    calculate: (token: string, periodId: string) =>
+    calculate: (token: string, body: { storeKg: number; storeTotalRub: number }) =>
       apiRequest<Settlement>("/payments/calculate", {
         method: "POST",
         token,
-        body: { periodId },
+        body,
       }),
+    preview: (token: string) =>
+      apiRequest<Settlement | null>("/payments/settlement/preview", { token }),
+    current: (token: string) =>
+      apiRequest<Settlement | null>("/payments/settlement", { token }),
     markPaid: (token: string, periodId: string, collectorId: string) =>
-      apiRequest<string>("/payments/mark-paid", {
+      apiRequest<MarkPaidResult>("/payments/mark-paid", {
         method: "POST",
         token,
         body: { periodId, collectorId },

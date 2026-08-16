@@ -4,7 +4,6 @@ import type { AdminSession, Collector } from "@prisma/client";
 import { db } from "./db";
 import { getDashboard } from "./lib/dashboard";
 import {
-  assertDate,
   assertDayOfWeek,
   assertPeriodDates,
   assertPositiveKg,
@@ -18,8 +17,12 @@ import {
   normalizeName,
   normalizeOptionalTelegram,
   requireCollector,
+  requireCollectorUnpaid,
   requireOpenPeriod,
   requirePeriod,
+  requirePreviousWeekPeriod,
+  requireUnsettledPeriod,
+  assertDateInPeriod,
 } from "./lib/domain";
 import { collectorDto, pendingDto, periodDto, settingsDto } from "./lib/dto";
 import {
@@ -28,8 +31,8 @@ import {
   randomSessionToken,
   timingSafeEqualString,
 } from "./lib/errors";
-import { assertReminderKind, buildReminder, buildSummary } from "./lib/messages";
-import { createPeriodSettlement, getPeriodSettlement } from "./lib/payments";
+import { assertReminderKind, buildReminder, buildSummary, sendSettlementInvoices } from "./lib/messages";
+import { createPeriodSettlement, getPeriodSettlement, markCollectorPaid, syncUnpaidCollectorPayment } from "./lib/payments";
 import { loadInvoicePhoto, saveInvoicePhoto } from "./lib/invoices";
 import {
   createCollectorCreditEntry,
@@ -71,7 +74,10 @@ app.get("/health", async (c) => {
 
 app.onError((err, c) => {
   if (err instanceof HttpError) {
-    return c.json({ error: err.message }, err.status);
+    return c.json(
+      err.details ? { error: err.message, details: err.details } : { error: err.message },
+      err.status,
+    );
   }
   const message = err instanceof Error ? err.message : "Internal error";
   console.error(err);
@@ -284,7 +290,8 @@ authed.post("/entries/:id/confirm", async (c) => {
   if (entry.status !== "pending") {
     throw new HttpError("Entry is not pending review");
   }
-  await requireOpenPeriod(db, entry.periodId);
+  await requireUnsettledPeriod(db, entry.periodId);
+  await requireCollectorUnpaid(db, entry.periodId, entry.collectorId);
   await db.entry.update({
     where: { id },
     data: {
@@ -293,6 +300,7 @@ authed.post("/entries/:id/confirm", async (c) => {
       confirmedAt: new Date(),
     },
   });
+  await syncUnpaidCollectorPayment(db, entry.periodId, entry.collectorId);
   return c.json(null);
 });
 
@@ -306,7 +314,7 @@ authed.post("/entries/:id/reject", async (c) => {
   if (entry.status !== "pending") {
     throw new HttpError("Entry is not pending review");
   }
-  await requireOpenPeriod(db, entry.periodId);
+  await requireUnsettledPeriod(db, entry.periodId);
   await db.entry.update({
     where: { id },
     data: { status: "rejected", note: body.note },
@@ -324,14 +332,14 @@ authed.post("/entries/manual", async (c) => {
   }>();
   const periodId = body.periodId ?? "";
   const collectorId = body.collectorId ?? "";
-  await requireOpenPeriod(db, periodId);
-  await requireCollector(db, collectorId);
-  assertDate(body.date ?? "");
+  const period = await requireUnsettledPeriod(db, periodId);
+  await requireCollectorUnpaid(db, periodId, collectorId);
+  const date = assertDateInPeriod(body.date ?? "", period.startDate, period.endDate);
   const row = await db.entry.create({
     data: {
       periodId,
       collectorId,
-      date: body.date ?? "",
+      date,
       kg: assertPositiveKg(body.kg ?? 0),
       source: "manual",
       status: "confirmed",
@@ -339,6 +347,7 @@ authed.post("/entries/manual", async (c) => {
       confirmedAt: new Date(),
     },
   });
+  await syncUnpaidCollectorPayment(db, periodId, collectorId);
   return c.json(row.id);
 });
 
@@ -357,16 +366,16 @@ authed.post("/entries/credit", async (c) => {
   if (collectorId === creditedByCollectorId) {
     throw new HttpError("creditedByCollectorId must be a different collector");
   }
-  await requireOpenPeriod(db, periodId);
-  await requireCollector(db, collectorId);
+  const period = await requireUnsettledPeriod(db, periodId);
+  await requireCollectorUnpaid(db, periodId, collectorId);
   await requireCollector(db, creditedByCollectorId);
-  assertDate(body.date ?? "");
+  const date = assertDateInPeriod(body.date ?? "", period.startDate, period.endDate);
   const row = await db.entry.create({
     data: {
       periodId,
       collectorId,
       creditedByCollectorId,
-      date: body.date ?? "",
+      date,
       kg: assertPositiveKg(body.kg ?? 0),
       source: "manual",
       status: "confirmed",
@@ -374,6 +383,7 @@ authed.post("/entries/credit", async (c) => {
       confirmedAt: new Date(),
     },
   });
+  await syncUnpaidCollectorPayment(db, periodId, collectorId);
   return c.json(row.id);
 });
 
@@ -420,44 +430,56 @@ authed.get("/payments", async (c) => {
   return c.json(settlement.rows);
 });
 
-authed.post("/payments/calculate", async (c) => {
-  const body = await c.req.json<{ periodId?: string }>();
-  const periodId = body.periodId ?? "";
-  if (!periodId) {
-    throw new HttpError("periodId is required");
+authed.get("/payments/settlement", async (c) => {
+  try {
+    const period = await requirePreviousWeekPeriod(db);
+    const existing = await db.payment.findFirst({ where: { periodId: period.id } });
+    if (!existing) {
+      return c.json(null);
+    }
+    return c.json(await getPeriodSettlement(db, period.id));
+  } catch (err) {
+    if (err instanceof HttpError && err.message === "Previous period not found") {
+      return c.json(null);
+    }
+    throw err;
   }
-  const settlement = await createPeriodSettlement(db, periodId);
+});
+
+authed.get("/payments/settlement/preview", async (c) => {
+  try {
+    const period = await requirePreviousWeekPeriod(db);
+    return c.json(await getPeriodSettlement(db, period.id));
+  } catch (err) {
+    if (err instanceof HttpError && err.message === "Previous period not found") {
+      return c.json(null);
+    }
+    throw err;
+  }
+});
+
+authed.post("/payments/calculate", async (c) => {
+  const body = await c.req.json<{ storeKg?: number; storeTotalRub?: number }>();
+  const period = await requirePreviousWeekPeriod(db);
+  const settlement = await createPeriodSettlement(db, period.id, {
+    kg: body.storeKg ?? 0,
+    totalRub: body.storeTotalRub ?? 0,
+  });
   const settings = await getSettings(db);
-  const summary = settings ? await buildSummary(db, periodId) : { text: "" };
-  return c.json({ ...settlement, text: summary.text });
+  const summary = settings ? await buildSummary(db, period.id) : { text: "" };
+  const invoices = await sendSettlementInvoices(db, period.id);
+  return c.json({ ...settlement, text: summary.text, invoices });
 });
 
 authed.post("/payments/mark-paid", async (c) => {
   const body = await c.req.json<{ periodId?: string; collectorId?: string }>();
   const periodId = body.periodId ?? "";
   const collectorId = body.collectorId ?? "";
-  const period = await requirePeriod(db, periodId);
-  await requireCollector(db, collectorId);
-  const entries = await db.entry.findMany({
-    where: { periodId, status: "confirmed", collectorId },
-    take: 500,
-  });
-  let kg = 0;
-  for (const entry of entries) {
-    if (entry.kg !== null) {
-      kg += entry.kg;
-    }
+  if (!periodId || !collectorId) {
+    throw new HttpError("periodId and collectorId are required");
   }
-  if (kg <= 0) {
-    throw new HttpError("Collector has no confirmed kg in this period");
-  }
-  const amountRub = kg * period.rate;
-  const row = await db.payment.upsert({
-    where: { periodId_collectorId: { periodId, collectorId } },
-    update: { amountRub, paidAt: new Date() },
-    create: { periodId, collectorId, amountRub, paidAt: new Date() },
-  });
-  return c.json(row.id);
+  const result = await markCollectorPaid(db, periodId, collectorId);
+  return c.json(result);
 });
 
 authed.get("/settings", async (c) => {

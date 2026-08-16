@@ -6,10 +6,12 @@ import { useSession } from "../session";
 
 type Props = {
   periodId: string;
-  periodOpen: boolean;
+  canEdit: boolean;
+  startDate: string;
+  endDate: string;
 };
 
-export function HistoryPage({ periodId, periodOpen }: Props) {
+export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
   const { token, refreshData } = useSession();
   const { data: rows } = useApiQuery(
     Boolean(token),
@@ -73,7 +75,7 @@ export function HistoryPage({ periodId, periodOpen }: Props) {
   return (
     <>
       <h1 className="page-title">История</h1>
-      <div className="page-sub">Все подтверждённые записи текущего периода</div>
+      <div className="page-sub">Все подтверждённые записи выбранного периода</div>
       <div className="card">
         {rows === undefined ? (
           <div className="loading">Загрузка…</div>
@@ -116,11 +118,14 @@ export function HistoryPage({ periodId, periodOpen }: Props) {
         )}
       </div>
 
-      {periodOpen ? (
+      {canEdit ? (
         showForm ? (
           <form className="card" onSubmit={(event) => void onAdd(event)}>
             <h2>Добавить запись вручную</h2>
-            <div className="h2-sub">Если накладной не было или нужно засчитать чужой забор</div>
+            <div className="h2-sub">
+              Если участник сам не внёс кг — можно указать за него. Работает и для прошлых недель,
+              пока по ним не закрыта оплата.
+            </div>
             <div className="grid2">
               <div className="field">
                 <label htmlFor="hWho">Участник</label>
@@ -143,6 +148,8 @@ export function HistoryPage({ periodId, periodOpen }: Props) {
                 <input
                   id="hDate"
                   type="date"
+                  min={startDate}
+                  max={endDate}
                   value={date}
                   onChange={(event) => setDate(event.target.value)}
                   required
@@ -195,7 +202,16 @@ export function HistoryPage({ periodId, periodOpen }: Props) {
             </button>
           </form>
         ) : (
-          <button type="button" className="btn-secondary" onClick={() => setShowForm(true)}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              if (!date) {
+                setDate(startDate);
+              }
+              setShowForm(true);
+            }}
+          >
             + Запись вручную
           </button>
         )

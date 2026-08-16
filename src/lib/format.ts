@@ -114,8 +114,10 @@ const ERROR_RU: Record<string, string> = {
   "Bank, payTo and deadlineText are required": "Заполните банк, карту и дедлайн",
   "windowStart must be before windowEnd": "Начало окна должно быть раньше конца",
   "Collector has no confirmed kg in this period": "У участника нет подтверждённых кг",
-  "No confirmed kilograms in this period": "Нет подтверждённых кг за прошлую неделю",
+  "Settlement does not match store invoice": "Итог участников не совпадает со счётом магазина",
   "Previous period is already settled": "Прошлая неделя уже закрыта — все оплатили",
+  "Period is already settled": "Период уже закрыт — все оплатили, кг менять нельзя",
+  "Date is outside the period": "Дата не входит в этот период",
   "Previous period not found": "Прошлой недели в системе ещё нет — нечего считать",
   "BOT_TOKEN is not configured": "Токен бота не задан — откройте раздел Telegram в админке",
   "Invalid bot token": "Неверный токен бота — проверьте у @BotFather",
@@ -135,6 +137,7 @@ const ERROR_RU: Record<string, string> = {
   "Not a collector": "Тебя нет в списке участников",
   "Collector is inactive": "Ты скрыт в списке участников",
   "Date is outside the open period": "Дата не входит в текущий период",
+  "Date is in the future": "Нельзя внести за день, который ещё не наступил",
   "creditedByCollectorId must be a different collector": "Засчитать можно только за другого участника",
   "kg must be greater than 0": "Укажите килограммы больше нуля",
   "storeTotalRub must be greater than 0": "Укажите сумму из счёта магазина",
@@ -146,12 +149,6 @@ const ERROR_RU: Record<string, string> = {
 
 export function errorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : "Неизвестная ошибка";
-  const settlementMismatch = raw.match(
-    /^Settlement mismatch: (.+) kg \/ (.+) rub vs store (.+) kg \/ (.+) rub$/,
-  );
-  if (settlementMismatch) {
-    return `Не совпадает со счётом магазина: у участников ${settlementMismatch[1]} кг / ${settlementMismatch[2]} ₽, в счёте ${settlementMismatch[3]} кг / ${settlementMismatch[4]} ₽`;
-  }
   const storeMismatch = raw.match(
     /^Store invoice mismatch: (.+) kg × (\d+) = (.+), got (.+)$/,
   );

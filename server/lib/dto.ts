@@ -20,6 +20,7 @@ export function periodDto(row: Period) {
     storeTotalRub: row.storeTotalRub,
     rate: row.rate,
     status: row.status,
+    settledAt: row.settledAt?.getTime() ?? null,
   };
 }
 

@@ -81,6 +81,14 @@ export function currentMoscowWeek(nowMs: number): { startDate: string; endDate: 
   return { startDate, endDate: addDaysIso(startDate, 6) };
 }
 
+export function previousMoscowWeek(nowMs: number): { startDate: string; endDate: string } {
+  const current = currentMoscowWeek(nowMs);
+  return {
+    startDate: addDaysIso(current.startDate, -7),
+    endDate: addDaysIso(current.endDate, -7),
+  };
+}
+
 export const STORE_TIME_ZONE = "Europe/Moscow";
 
 export function clockInTimeZone(

@@ -102,6 +102,7 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
     rate: period.rate,
     storeTotalRub: period.storeTotalRub,
     status: period.status,
+    settled: Boolean(period.settledAt),
     confirmedKg,
     confirmedRub: confirmedKg * period.rate,
     expectedKg,

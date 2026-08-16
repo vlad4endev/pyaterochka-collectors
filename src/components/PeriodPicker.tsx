@@ -103,9 +103,23 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
                     setOpen(false);
                   }}
                 >
-                  <span>{periodLabel(period.startDate, period.endDate)}</span>
-                  <span className={`badge ${period.status === "open" ? "ok" : "info"}`}>
-                    {period.status === "open" ? "открыт" : "закрыт"}
+                  <span>
+                    {periodLabel(period.startDate, period.endDate)}
+                  </span>
+                  <span
+                    className={`badge ${
+                      period.settledAt
+                        ? "info"
+                        : period.status === "open"
+                          ? "ok"
+                          : "warn"
+                    }`}
+                  >
+                    {period.settledAt
+                      ? "оплачен"
+                      : period.status === "open"
+                        ? "открыт"
+                        : "не оплачен"}
                   </span>
                 </button>
               ))

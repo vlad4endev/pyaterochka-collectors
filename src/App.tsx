@@ -102,11 +102,18 @@ function AuthedApp() {
           </div>
         </div>
       ) : null}
-      {section === "home" && periodId ? <HomePage periodId={periodId} /> : null}
+      {section === "home" && periodId ? (
+        <HomePage periodId={periodId} onPeriod={setPeriodId} />
+      ) : null}
       {section === "calendar" && periodId ? <CalendarPage periodId={periodId} /> : null}
       {section === "participants" ? <ParticipantsPage /> : null}
       {section === "history" && periodId ? (
-        <HistoryPage periodId={periodId} periodOpen={selected?.status === "open"} />
+        <HistoryPage
+          periodId={periodId}
+          canEdit={!selected?.settledAt}
+          startDate={selected?.startDate ?? ""}
+          endDate={selected?.endDate ?? ""}
+        />
       ) : null}
       {section === "telegram" ? <TelegramPage /> : null}
       {section === "settings" ? <SettingsPage /> : null}

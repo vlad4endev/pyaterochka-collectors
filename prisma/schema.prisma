@@ -47,6 +47,7 @@ model Period {
   storeTotalRub Float
   rate          Float
   status        PeriodStatus
+  settledAt     DateTime?
   entries       Entry[]
   payments      Payment[]
 
@@ -84,6 +85,7 @@ model Payment {
   collectorId String
   collector   Collector @relation(fields: [collectorId], references: [id], onDelete: Restrict)
   amountRub   Float
+  kg          Float     @default(0)
   paidAt      DateTime?
 
   @@unique([periodId, collectorId])

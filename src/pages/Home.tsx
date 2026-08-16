@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconPhoto } from "../components/Icons";
-import { api, type Dashboard, type Settlement } from "../lib/api";
+import { api, type Dashboard, type MissingReport, type Settlement, type SettlementMismatch } from "../lib/api";
 import {
   dayName,
   errorMessage,
@@ -9,11 +9,13 @@ import {
   fmtShort,
   periodLabel,
 } from "../lib/format";
+import { ApiError } from "../lib/http";
 import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
 
 type Props = {
   periodId: string;
+  onPeriod: (id: string) => void;
 };
 
 type GapGroup = {
@@ -72,6 +74,37 @@ function PendingPhoto({
   );
 }
 
+function mismatchFromError(err: unknown): SettlementMismatch | null {
+  if (!(err instanceof ApiError)) {
+    return null;
+  }
+  const details = err.details;
+  if (typeof details !== "object" || details === null || !("mismatch" in details)) {
+    return null;
+  }
+  const value = details.mismatch;
+  if (typeof value !== "object" || value === null || !("diffKg" in value) || !("missing" in value)) {
+    return null;
+  }
+  return value as SettlementMismatch;
+}
+
+function diffKgText(diff: number): string {
+  if (Math.abs(diff) < 0.05) {
+    return "кг совпали";
+  }
+  const kg = formatKg(Math.abs(diff));
+  return diff > 0 ? `не хватает ${kg} кг` : `лишние ${kg} кг`;
+}
+
+function diffRubText(diff: number): string {
+  if (Math.round(diff) === 0) {
+    return "сумма совпала";
+  }
+  const rub = formatRub(Math.abs(diff));
+  return diff > 0 ? `не хватает ${rub} ₽` : `лишние ${rub} ₽`;
+}
+
 function groupGaps(gaps: Dashboard["gaps"]): GapGroup[] {
   const groups = new Map<string, GapGroup>();
   for (const gap of gaps) {
@@ -90,19 +123,74 @@ function groupGaps(gaps: Dashboard["gaps"]): GapGroup[] {
   return [...groups.values()];
 }
 
-export function HomePage({ periodId }: Props) {
+function MissingKgEditor({
+  people,
+  kgDraft,
+  busyId,
+  onDraft,
+  onSave,
+}: {
+  people: MissingReport[];
+  kgDraft: Record<string, string>;
+  busyId: string | null;
+  onDraft: (key: string, value: string) => void;
+  onSave: (collectorId: string, date: string) => void;
+}) {
+  if (people.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      {people.map((person) => (
+        <div className="gap-item gap-kg" key={person.collectorId}>
+          <div>
+            <div>{person.collectorName}</div>
+            {person.dates.map((date) => {
+              const key = `${person.collectorId}:${date}`;
+              return (
+                <div className="review-actions" key={date}>
+                  <span className="d">
+                    {fmtShort(date)} · {dayName(date)}
+                  </span>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    placeholder="кг"
+                    value={kgDraft[key] ?? ""}
+                    onChange={(event) => onDraft(key, event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn-confirm"
+                    disabled={busyId === `kg-${key}`}
+                    onClick={() => onSave(person.collectorId, date)}
+                  >
+                    {busyId === `kg-${key}` ? "…" : "Внести"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+export function HomePage({ periodId, onPeriod }: Props) {
   const { token, refreshData } = useSession();
   const [showMessage, setShowMessage] = useState(false);
   const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcPreview, setCalcPreview] = useState<Settlement | null>(null);
+  const [storeKg, setStoreKg] = useState("");
+  const [storeRub, setStoreRub] = useState("");
+  const [mismatch, setMismatch] = useState<SettlementMismatch | null>(null);
   const [kgDraft, setKgDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSettlement(null);
-    setShowMessage(false);
-  }, [periodId]);
 
   const { data: dashboard } = useApiQuery(
     Boolean(token),
@@ -114,16 +202,26 @@ export function HomePage({ periodId }: Props) {
     () => api.entries.listPending(token ?? "", periodId),
     [token, periodId],
   );
-  const { data: payments } = useApiQuery(
+  const { data: loadedSettlement } = useApiQuery(
     Boolean(token),
-    () => api.payments.list(token ?? "", periodId),
-    [token, periodId],
+    () => api.payments.current(token ?? ""),
+    [token],
+  );
+  const { data: lastWeekPreview } = useApiQuery(
+    Boolean(token),
+    () => api.payments.preview(token ?? ""),
+    [token],
   );
   const { data: summary } = useApiQuery(
     Boolean(token) && showMessage && !settlement?.text,
     () => api.summary(token ?? "", periodId),
     [token, periodId, showMessage, settlement?.text],
   );
+
+  const view = settlement ?? loadedSettlement;
+  const lastWeek = view ?? lastWeekPreview;
+  const lastWeekMissing =
+    lastWeek && !lastWeek.settled ? (lastWeek.missing ?? []) : [];
 
   async function onConfirm(entryId: string, fallbackKg: number | undefined) {
     if (!token) {
@@ -166,15 +264,108 @@ export function HomePage({ periodId }: Props) {
     }
   }
 
-  async function onPaid(collectorId: string) {
+  async function refreshLastWeekPreview() {
     if (!token) {
+      return null;
+    }
+    const preview = await api.payments.preview(token);
+    setCalcPreview(preview);
+    if (preview && mismatch) {
+      const storeKgValue = Number(storeKg);
+      const storeRubValue = Number(storeRub);
+      setMismatch({
+        ...mismatch,
+        collectedKg: preview.totalKg,
+        collectedRub: preview.totalRub,
+        diffKg: Number.isFinite(storeKgValue) ? storeKgValue - preview.totalKg : mismatch.diffKg,
+        diffRub: Number.isFinite(storeRubValue)
+          ? storeRubValue - preview.totalRub
+          : mismatch.diffRub,
+        missing: preview.missing ?? [],
+        pending: preview.pending ?? [],
+      });
+    }
+    return preview;
+  }
+
+  async function onAdminKg(targetPeriodId: string, collectorId: string, date: string) {
+    if (!token) {
+      return;
+    }
+    const key = `${collectorId}:${date}`;
+    const kg = Number(kgDraft[key] ?? "");
+    if (!Number.isFinite(kg) || kg <= 0) {
+      setError("Укажите кг больше нуля");
+      return;
+    }
+    setError(null);
+    setToast(null);
+    setBusyId(`kg-${key}`);
+    try {
+      await api.entries.createManual(token, {
+        periodId: targetPeriodId,
+        collectorId,
+        date,
+        kg,
+      });
+      setKgDraft((prev) => ({ ...prev, [key]: "" }));
+      refreshData();
+      if (calcOpen) {
+        await refreshLastWeekPreview();
+      }
+      setToast("Кг внесены");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onPaid(collectorId: string) {
+    if (!token || !view) {
       return;
     }
     setError(null);
     setBusyId(collectorId);
     try {
-      await api.payments.markPaid(token, periodId, collectorId);
+      const result = await api.payments.markPaid(token, view.periodId, collectorId);
+      setSettlement({ ...result.settlement, text: settlement?.text ?? view.text });
       refreshData();
+      setToast(
+        result.periodClosed ? "Все оплатили — период закрыт" : "Оплата отмечена",
+      );
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function openCalculate() {
+    if (!token) {
+      return;
+    }
+    setError(null);
+    setToast(null);
+    setMismatch(null);
+    setBusyId("calculate");
+    try {
+      const preview = await api.payments.preview(token);
+      if (!preview) {
+        setError("Прошлой недели в системе ещё нет — нечего считать");
+        return;
+      }
+      setCalcPreview(preview);
+      const kg = preview.totalKg > 0 ? String(preview.totalKg) : "";
+      setStoreKg(kg);
+      setStoreRub(
+        preview.storeTotalRub && preview.storeTotalRub > 0
+          ? String(preview.storeTotalRub)
+          : kg
+            ? String(Math.round(Number(kg) * preview.rate))
+            : "",
+      );
+      setCalcOpen(true);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -186,16 +377,43 @@ export function HomePage({ periodId }: Props) {
     if (!token) {
       return;
     }
+    const kg = Number(storeKg);
+    const totalRub = Number(storeRub);
+    if (!Number.isFinite(kg) || kg <= 0) {
+      setError("Укажите кг из счёта магазина");
+      return;
+    }
+    if (!Number.isFinite(totalRub) || totalRub <= 0) {
+      setError("Укажите сумму из счёта магазина");
+      return;
+    }
     setError(null);
     setToast(null);
+    setMismatch(null);
     setBusyId("calculate");
     try {
-      const result = await api.payments.calculate(token, periodId);
+      const result = await api.payments.calculate(token, {
+        storeKg: kg,
+        storeTotalRub: totalRub,
+      });
       setSettlement(result);
       setShowMessage(Boolean(result.text));
+      setCalcOpen(false);
+      if (result.periodId !== periodId) {
+        onPeriod(result.periodId);
+      }
       refreshData();
-      setToast("Расчёт собран");
+      const skipped = result.invoices?.skipped ?? [];
+      if (skipped.length === 0) {
+        setToast("Расчёт готов, счета отправлены участникам");
+      } else {
+        const names = skipped
+          .map((item) => `${item.collectorName} (${errorMessage(new Error(item.reason))})`)
+          .join("; ");
+        setToast(`Расчёт готов. Счета: ${result.invoices?.sent ?? 0}. Не ушло: ${names}`);
+      }
     } catch (err) {
+      setMismatch(mismatchFromError(err));
       setError(errorMessage(err));
     } finally {
       setBusyId(null);
@@ -203,7 +421,7 @@ export function HomePage({ periodId }: Props) {
   }
 
   async function copySummary() {
-    const text = settlement?.text ?? summary?.text;
+    const text = view?.text ?? summary?.text;
     if (!text) {
       return;
     }
@@ -218,7 +436,7 @@ export function HomePage({ periodId }: Props) {
     setError(null);
     setBusyId("summary");
     try {
-      await api.sendSummary(token, periodId);
+      await api.sendSummary(token, view?.periodId ?? periodId);
       setToast("Отправлено в группу ✓");
     } catch (err) {
       setError(errorMessage(err));
@@ -231,22 +449,23 @@ export function HomePage({ periodId }: Props) {
     if (!token) {
       return;
     }
+    const targetPeriodId = kind === "payment" ? (view?.periodId ?? periodId) : periodId;
     const busyKey = `remind-${kind}-${collectorId}`;
     setError(null);
     setToast(null);
     setBusyId(busyKey);
     try {
       if (canSend) {
-        await api.sendReminder(token, periodId, collectorId, kind);
+        await api.sendReminder(token, targetPeriodId, collectorId, kind);
         setToast("Напоминание отправлено ✓");
         return;
       }
-      const preview = await api.reminderPreview(token, periodId, collectorId, kind);
+      const preview = await api.reminderPreview(token, targetPeriodId, collectorId, kind);
       await navigator.clipboard.writeText(preview.text);
       setToast("Нет Telegram ID — текст скопирован");
     } catch (err) {
       try {
-        const preview = await api.reminderPreview(token, periodId, collectorId, kind);
+        const preview = await api.reminderPreview(token, targetPeriodId, collectorId, kind);
         await navigator.clipboard.writeText(preview.text);
         setError(`${errorMessage(err)}. Текст скопирован.`);
       } catch {
@@ -332,7 +551,7 @@ export function HomePage({ periodId }: Props) {
                 <button
                   type="button"
                   className="btn-confirm"
-                  disabled={busyId === item._id || dashboard.status !== "open"}
+                  disabled={busyId === item._id || dashboard.settled}
                   onClick={() => void onConfirm(item._id, item.kg)}
                 >
                   Подтвердить
@@ -340,7 +559,7 @@ export function HomePage({ periodId }: Props) {
                 <button
                   type="button"
                   className="btn-reject"
-                  disabled={busyId === item._id || dashboard.status !== "open"}
+                  disabled={busyId === item._id || dashboard.settled}
                   onClick={() => void onReject(item._id)}
                 >
                   Отклонить
@@ -356,23 +575,56 @@ export function HomePage({ periodId }: Props) {
           Пропуски <span className="badge info">{dashboard.gaps.length}</span>
         </h2>
         <div className="h2-sub">
-          Дни по графику без записи. Напоминание уходит в личку, если у участника есть Telegram ID и
-          он хотя бы раз открыл бота.
+          Дни по графику без записи. Если участник сам не внёс кг, можно указать их вручную — и за
+          текущую неделю, и за прошлую, пока она не оплачена.
         </div>
         {dashboard.gaps.length === 0 ? (
           <div className="empty">Пропусков нет</div>
         ) : (
           groupGaps(dashboard.gaps).map((group) => (
-            <div className="gap-item" key={group.collectorId}>
-              <span>{group.collectorName}</span>
+            <div className="gap-item gap-kg" key={group.collectorId}>
+              <div>
+                <div>{group.collectorName}</div>
+                {dashboard.settled ? (
+                  <div className="dates" style={{ textAlign: "left", marginTop: 4 }}>
+                    {group.dates.map((date) => (
+                      <span key={date}>
+                        {fmtShort(date)} · {dayName(date)}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  group.dates.map((date) => {
+                    const key = `${group.collectorId}:${date}`;
+                    return (
+                      <div className="review-actions" key={date}>
+                        <span className="d">
+                          {fmtShort(date)} · {dayName(date)}
+                        </span>
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          placeholder="кг"
+                          value={kgDraft[key] ?? ""}
+                          onChange={(event) =>
+                            setKgDraft((prev) => ({ ...prev, [key]: event.target.value }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="btn-confirm"
+                          disabled={busyId === `kg-${key}`}
+                          onClick={() => void onAdminKg(periodId, group.collectorId, date)}
+                        >
+                          {busyId === `kg-${key}` ? "…" : "Внести"}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
               <div className="row-actions">
-                <span className="dates">
-                  {group.dates.map((date) => (
-                    <span key={date}>
-                      {fmtShort(date)} · {dayName(date)}
-                    </span>
-                  ))}
-                </span>
                 <button
                   type="button"
                   className="btn-quiet"
@@ -394,25 +646,43 @@ export function HomePage({ periodId }: Props) {
       <div className="card">
         <h2>Расчёт</h2>
         <div className="h2-sub">
-          Собирает по всем участникам подтверждённые кг и сумму за выбранный период
-          {(pending?.length ?? dashboard.pendingCount) > 0
-            ? ` — ${pending?.length ?? dashboard.pendingCount} накладных на проверке в расчёт не войдут`
-            : ""}
-          .
+          Счёт магазина за прошлую неделю сверяется с кг участников. Если кто-то не внёс кг, можно
+          указать их вручную — пока неделя не оплачена.
         </div>
-        <button
-          type="button"
-          className="btn-primary"
-          style={{ marginBottom: settlement ? 4 : 0 }}
-          disabled={busyId === "calculate"}
-          onClick={() => void onCalculate()}
-        >
-          {busyId === "calculate" ? "Считаем…" : "Создать расчёт"}
-        </button>
-        {settlement ? (
+        {view?.settled ? (
+          <div className="empty" style={{ textAlign: "left" }}>
+            Прошлая неделя закрыта — все оплатили. В новый расчёт она не попадёт.
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ marginBottom: view ? 4 : 0 }}
+            disabled={busyId === "calculate"}
+            onClick={() => void openCalculate()}
+          >
+            {busyId === "calculate" && !calcOpen ? "…" : "Рассчитать"}
+          </button>
+        )}
+        {lastWeek && lastWeekMissing.length > 0 ? (
           <>
             <div className="h2-sub" style={{ marginTop: 16 }}>
-              {periodLabel(settlement.startDate, settlement.endDate)} · {settlement.rate} ₽/кг
+              Не внесли кг за {periodLabel(lastWeek.startDate, lastWeek.endDate)}
+            </div>
+            <MissingKgEditor
+              people={lastWeekMissing}
+              kgDraft={kgDraft}
+              busyId={busyId}
+              onDraft={(key, value) => setKgDraft((prev) => ({ ...prev, [key]: value }))}
+              onSave={(collectorId, date) => void onAdminKg(lastWeek.periodId, collectorId, date)}
+            />
+          </>
+        ) : null}
+        {view ? (
+          <>
+            <div className="h2-sub" style={{ marginTop: 16 }}>
+              {periodLabel(view.startDate, view.endDate)} · {view.rate} ₽/кг
+              {view.settled ? " · закрыт" : ""}
             </div>
             <table>
               <thead>
@@ -420,89 +690,45 @@ export function HomePage({ periodId }: Props) {
                   <th>Участник</th>
                   <th>Кг</th>
                   <th>Сумма</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {settlement.rows.map((row) => (
+                {view.rows.map((row) => (
                   <tr key={row.collectorId}>
                     <td>{row.collectorName}</td>
                     <td>{formatKg(row.kg)} кг</td>
                     <td>{formatRub(row.amountRub)} ₽</td>
+                    <td>
+                      <div className="row-actions">
+                        {row.paidAt || view.settled ? (
+                          <span className="badge ok">оплатил</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-confirm"
+                            disabled={busyId === row.collectorId}
+                            onClick={() => void onPaid(row.collectorId)}
+                          >
+                            {busyId === row.collectorId ? "…" : "Оплатил"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
                   <td>Итого</td>
-                  <td>{formatKg(settlement.totalKg)} кг</td>
-                  <td>{formatRub(settlement.totalRub)} ₽</td>
+                  <td>{formatKg(view.totalKg)} кг</td>
+                  <td>{formatRub(view.totalRub)} ₽</td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>
           </>
         ) : null}
-      </div>
-
-      <div className="card">
-        <h2>Переводы</h2>
-        <div className="h2-sub">Отметь, кто уже перевёл за период. Неоплаченным можно напомнить в личку.</div>
-        {payments === undefined ? (
-          <div className="loading">Загрузка…</div>
-        ) : payments.length === 0 ? (
-          <div className="empty">Подтверждённых кг пока нет</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Участник</th>
-                <th>Кг</th>
-                <th>Сумма</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((row) => (
-                <tr key={row.collectorId}>
-                  <td>{row.collectorName}</td>
-                  <td>{formatKg(row.kg)} кг</td>
-                  <td>{formatRub(row.amountRub)} ₽</td>
-                  <td>
-                    <div className="row-actions">
-                      {row.paidAt ? (
-                        <span className="badge ok">перевёл</span>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="toggle-pill off"
-                            disabled={busyId === row.collectorId}
-                            onClick={() => void onPaid(row.collectorId)}
-                          >
-                            отметить
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-quiet"
-                            disabled={busyId === `remind-payment-${row.collectorId}`}
-                            onClick={() =>
-                              void remind(row.collectorId, "payment", row.hasTelegram)
-                            }
-                          >
-                            {busyId === `remind-payment-${row.collectorId}`
-                              ? "…"
-                              : row.hasTelegram
-                                ? "Напомнить"
-                                : "Скопировать"}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </div>
 
       <button type="button" className="btn-primary" onClick={() => setShowMessage((value) => !value)}>
@@ -511,9 +737,9 @@ export function HomePage({ periodId }: Props) {
       {showMessage ? (
         <div className="card" style={{ marginTop: 12, maxWidth: 520 }}>
           <h2>Сообщение</h2>
-          {settlement?.text || summary ? (
+          {view?.text || summary ? (
             <>
-              <textarea readOnly value={settlement?.text ?? summary?.text ?? ""} />
+              <textarea readOnly value={view?.text ?? summary?.text ?? ""} />
               <div className="msg-actions">
                 <button type="button" className="btn-secondary" onClick={() => void copySummary()}>
                   Скопировать
@@ -537,8 +763,167 @@ export function HomePage({ periodId }: Props) {
           )}
         </div>
       ) : null}
-      {toast ? <div className="toast">{toast}</div> : null}
-      {error ? <div className="err">{error}</div> : null}
+      {calcOpen ? (
+        <div className="overlay" onClick={() => setCalcOpen(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <h2>Расчёт</h2>
+            <div className="h2-sub">
+              {calcPreview
+                ? periodLabel(calcPreview.startDate, calcPreview.endDate)
+                : "Прошлая неделя"}
+              {" · "}
+              20 ₽/кг
+            </div>
+            {calcPreview ? (
+              <div className="stat-row" style={{ marginBottom: 14 }}>
+                <span>Собрано у участников</span>
+                <span className="val">
+                  {formatKg(calcPreview.totalKg)} кг · {formatRub(calcPreview.totalRub)} ₽
+                </span>
+              </div>
+            ) : null}
+            {calcPreview &&
+            !mismatch &&
+            (calcPreview.missing?.length ?? 0) > 0 &&
+            !calcPreview.settled ? (
+              <>
+                <div className="mismatch-section" style={{ marginTop: 0 }}>
+                  Не внесли кг — можно указать вручную
+                </div>
+                <MissingKgEditor
+                  people={calcPreview.missing ?? []}
+                  kgDraft={kgDraft}
+                  busyId={busyId}
+                  onDraft={(key, value) => setKgDraft((prev) => ({ ...prev, [key]: value }))}
+                  onSave={(collectorId, date) =>
+                    void onAdminKg(calcPreview.periodId, collectorId, date)
+                  }
+                />
+              </>
+            ) : null}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void onCalculate();
+              }}
+            >
+              <div className="grid2">
+                <div className="field">
+                  <label htmlFor="storeKg">Кг по счёту магазина</label>
+                  <input
+                    id="storeKg"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={storeKg}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setStoreKg(next);
+                      const kg = Number(next);
+                      if (Number.isFinite(kg) && kg > 0) {
+                        setStoreRub(String(Math.round(kg * (calcPreview?.rate ?? 20))));
+                      }
+                    }}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="storeRub">Сумма по счёту магазина, ₽</label>
+                  <input
+                    id="storeRub"
+                    type="number"
+                    min="0"
+                    value={storeRub}
+                    onChange={(event) => setStoreRub(event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="h2-sub">
+                Итог по участникам должен совпасть со счётом. Тогда расчёт готов, и каждому уйдёт
+                сообщение: период, сумма и куда переводить.
+              </div>
+              {mismatch ? (
+                <div className="mismatch">
+                  <div className="mismatch-title">Итог не сходится со счётом</div>
+                  <div className="stat-row">
+                    <span>Участники</span>
+                    <span className="val">
+                      {formatKg(mismatch.collectedKg)} кг · {formatRub(mismatch.collectedRub)} ₽
+                    </span>
+                  </div>
+                  <div className="stat-row">
+                    <span>Магазин</span>
+                    <span className="val">
+                      {formatKg(mismatch.storeKg)} кг · {formatRub(mismatch.storeRub)} ₽
+                    </span>
+                  </div>
+                  <div className="stat-row mismatch-diff">
+                    <span>Разница</span>
+                    <span className="val">
+                      {diffKgText(mismatch.diffKg)} · {diffRubText(mismatch.diffRub)}
+                    </span>
+                  </div>
+                  <div className="mismatch-section">Не внесли отчёт</div>
+                  {mismatch.missing.length === 0 ? (
+                    <div className="empty">Все по графику внесли отчёт</div>
+                  ) : calcPreview && !calcPreview.settled ? (
+                    <MissingKgEditor
+                      people={mismatch.missing}
+                      kgDraft={kgDraft}
+                      busyId={busyId}
+                      onDraft={(key, value) => setKgDraft((prev) => ({ ...prev, [key]: value }))}
+                      onSave={(collectorId, date) =>
+                        void onAdminKg(calcPreview.periodId, collectorId, date)
+                      }
+                    />
+                  ) : (
+                    mismatch.missing.map((person) => (
+                      <div className="gap-item" key={person.collectorId}>
+                        <div>{person.collectorName}</div>
+                        <div className="dates">
+                          {person.dates.map((date) => (
+                            <span key={date}>
+                              {fmtShort(date)} · {dayName(date)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {mismatch.pending.length > 0 ? (
+                    <>
+                      <div className="mismatch-section">На проверке — ещё не в сумме</div>
+                      {mismatch.pending.map((person) => (
+                        <div className="gap-item" key={person.collectorId}>
+                          <div>{person.collectorName}</div>
+                          <div className="dates">
+                            {person.dates.map((date) => (
+                              <span key={date}>
+                                {fmtShort(date)} · {dayName(date)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              {toast ? <div className="toast" style={{ position: "static" }}>{toast}</div> : null}
+              {error ? <div className="err">{error}</div> : null}
+              <div className="msg-actions">
+                <button type="button" className="btn-secondary" onClick={() => setCalcOpen(false)}>
+                  Отмена
+                </button>
+                <button type="submit" className="btn-primary" disabled={busyId === "calculate"}>
+                  {busyId === "calculate" ? "Собираем…" : "Собрать расчёт"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {toast && !calcOpen ? <div className="toast">{toast}</div> : null}
+      {error && !calcOpen ? <div className="err">{error}</div> : null}
     </>
   );
 }

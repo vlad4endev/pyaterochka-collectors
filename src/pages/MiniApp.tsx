@@ -50,6 +50,18 @@ function isMyScheduledDay(home: MiniHome, date: string): boolean {
   );
 }
 
+function openDays(home: MiniHome) {
+  return home.days.filter((day) => day.date <= home.today.date);
+}
+
+function defaultOpenDate(home: MiniHome, current?: string): string {
+  const days = openDays(home);
+  if (current && days.some((day) => day.date === current)) {
+    return current;
+  }
+  return days.find((day) => day.date === home.today.date)?.date ?? days[0]?.date ?? home.today.date;
+}
+
 function statusCopy(status: "pending" | "confirmed" | "rejected"): string {
   if (status === "confirmed") {
     return "принято";
@@ -115,13 +127,8 @@ export function MiniAppPage() {
         }
         setHome(value);
         setDate((current) => {
-          const next =
-            current && value.days.some((day) => day.date === current)
-              ? current
-              : value.days.some((day) => day.date === value.today.date)
-                ? value.today.date
-                : (value.days[0]?.date ?? value.today.date);
-          setForId((prev) => (current ? prev : defaultForId(value, next)));
+          const next = defaultOpenDate(value, current);
+          setForId((prev) => (current && next === current ? prev : defaultForId(value, next)));
           if (!current && !isMyScheduledDay(value, next)) {
             setDayOpen(true);
           }
@@ -175,6 +182,9 @@ export function MiniAppPage() {
   const todaySelected = Boolean(home && date === home.today.date);
 
   function pickDate(next: string, opts?: { scroll?: boolean }) {
+    if (home && next > home.today.date) {
+      return;
+    }
     haptic("select");
     setDate(next);
     if (home) {
@@ -192,6 +202,10 @@ export function MiniAppPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (!initData || !home?.collector || !canSubmit) {
+      return;
+    }
+    if (date > home.today.date) {
+      setError("Нельзя внести за день, который ещё не наступил");
       return;
     }
     setBusy(true);
@@ -423,21 +437,22 @@ export function MiniAppPage() {
 
           {dayOpen ? (
             <div className="ma-days" role="listbox" aria-label="День">
-              {home.days.map((day) => {
+              {openDays(home).map((day) => {
                 const mine =
                   home.collector?.dayOfWeek !== null && day.weekday === home.collector?.dayOfWeek;
                 const other = day.scheduled.find((person) => person._id !== home.collector?._id);
                 const selected = date === day.date;
+                const isToday = day.date === home.today.date;
                 return (
                   <button
                     type="button"
                     key={day.date}
                     role="option"
                     aria-selected={selected}
-                    className={`ma-day${selected ? " on" : ""}${day.date === home.today.date ? " now" : ""}`}
+                    className={`ma-day${selected ? " on" : ""}${isToday ? " now" : ""}`}
                     onClick={() => pickDate(day.date)}
                   >
-                    <em>{DAY_SHORT[day.weekday]}</em>
+                    <em>{isToday ? "сегодня" : DAY_SHORT[day.weekday]}</em>
                     <strong>{fmtHuman(day.date)}</strong>
                     <small>{mine ? "ты" : other ? firstName(other.name) : "—"}</small>
                   </button>

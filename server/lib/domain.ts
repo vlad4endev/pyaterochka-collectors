@@ -1,5 +1,5 @@
 import type { Collector, Period, PrismaClient, Settings } from "@prisma/client";
-import { assertDate, assertDayOfWeek, currentMoscowWeek } from "./dates";
+import { assertDate, assertDayOfWeek, currentMoscowWeek, previousMoscowWeek } from "./dates";
 import { HttpError } from "./errors";
 
 export async function getOpenPeriod(db: PrismaClient, nowMs = Date.now()): Promise<Period | null> {
@@ -21,6 +21,37 @@ export async function requireOpenPeriod(db: PrismaClient, periodId: string): Pro
     throw new HttpError("Period is closed");
   }
   return period;
+}
+
+export async function requireUnsettledPeriod(db: PrismaClient, periodId: string): Promise<Period> {
+  const period = await requirePeriod(db, periodId);
+  if (period.settledAt) {
+    throw new HttpError("Period is already settled", 409);
+  }
+  return period;
+}
+
+export async function requireCollectorUnpaid(
+  db: PrismaClient,
+  periodId: string,
+  collectorId: string,
+): Promise<Collector> {
+  const collector = await requireCollector(db, collectorId);
+  const payment = await db.payment.findUnique({
+    where: { periodId_collectorId: { periodId, collectorId } },
+  });
+  if (payment?.paidAt) {
+    throw new HttpError("Collector already paid");
+  }
+  return collector;
+}
+
+export function assertDateInPeriod(date: string, startDate: string, endDate: string): string {
+  const iso = assertDate(date);
+  if (iso < startDate || iso > endDate) {
+    throw new HttpError("Date is outside the period");
+  }
+  return iso;
 }
 
 export async function requireCollector(
@@ -144,8 +175,27 @@ export function assertPeriodDates(startDate: string, endDate: string): void {
 
 export { assertDate, assertDayOfWeek };
 
-const DEFAULT_WEEK_RATE = 20;
+export const KG_RATE_RUB = 20;
 const DEFAULT_WEEK_STORE_TOTAL = 8000;
+
+export async function requirePreviousWeekPeriod(
+  db: PrismaClient,
+  nowMs = Date.now(),
+): Promise<Period> {
+  const { startDate, endDate } = previousMoscowWeek(nowMs);
+  const byStart = await db.period.findUnique({ where: { startDate } });
+  if (byStart) {
+    return byStart;
+  }
+  const covering = await db.period.findFirst({
+    where: { startDate: { lte: startDate }, endDate: { gte: endDate } },
+    orderBy: { startDate: "desc" },
+  });
+  if (covering) {
+    return covering;
+  }
+  throw new HttpError("Previous period not found", 404);
+}
 
 export async function ensureCurrentWeekPeriod(
   db: PrismaClient,
@@ -175,7 +225,7 @@ export async function ensureCurrentWeekPeriod(
         startDate,
         endDate,
         storeTotalRub: last?.storeTotalRub ?? DEFAULT_WEEK_STORE_TOTAL,
-        rate: last?.rate ?? DEFAULT_WEEK_RATE,
+        rate: KG_RATE_RUB,
         status: "open",
       },
     });

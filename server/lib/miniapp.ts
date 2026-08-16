@@ -12,6 +12,7 @@ import {
   getSettings,
   requireCollector,
   requireOpenPeriod,
+  KG_RATE_RUB,
 } from "./domain";
 import { HttpError } from "./errors";
 
@@ -156,16 +157,19 @@ export async function getMiniHome(
     ? active.filter((row) => row.id !== collector.id).map(toPerson)
     : [];
   const days: MiniDay[] = period
-    ? eachDateInclusive(period.startDate, period.endDate).map((date) => {
-        const dayWeekday = weekdayFromIso(date);
-        return {
-          date,
-          weekday: dayWeekday,
-          scheduled: active
-            .filter((row) => row.dayOfWeek === dayWeekday)
-            .map(toPerson),
-        };
-      })
+    ? eachDateInclusive(period.startDate, period.endDate)
+        .filter((date) => date <= clock.date)
+        .map((date) => {
+          const dayWeekday = weekdayFromIso(date);
+          return {
+            date,
+            weekday: dayWeekday,
+            scheduled: active
+              .filter((row) => row.dayOfWeek === dayWeekday)
+              .map(toPerson),
+          };
+        })
+        .reverse()
     : [];
 
   const base = {
@@ -183,7 +187,7 @@ export async function getMiniHome(
           _id: period.id,
           startDate: period.startDate,
           endDate: period.endDate,
-          rate: period.rate,
+          rate: KG_RATE_RUB,
           status: period.status,
         }
       : null,
@@ -249,6 +253,9 @@ export async function getMiniHome(
   const gaps: Array<{ date: string }> = [];
   if (collector.active && collector.dayOfWeek !== null) {
     for (const date of eachDateInclusive(period.startDate, period.endDate)) {
+      if (date > clock.date) {
+        continue;
+      }
       if (weekdayFromIso(date) !== collector.dayOfWeek) {
         continue;
       }
@@ -266,7 +273,7 @@ export async function getMiniHome(
     ...base,
     me: {
       kg,
-      amountRub: kg * period.rate,
+      amountRub: kg * KG_RATE_RUB,
       paidAt: payment?.paidAt?.getTime() ?? null,
       entries: itemRows,
       gaps,
@@ -278,6 +285,19 @@ function assertDateInPeriod(date: string, startDate: string, endDate: string): s
   const iso = assertDate(date);
   if (iso < startDate || iso > endDate) {
     throw new HttpError("Date is outside the open period");
+  }
+  return iso;
+}
+
+function assertDateOpenForSubmit(
+  date: string,
+  startDate: string,
+  endDate: string,
+  today: string,
+): string {
+  const iso = assertDateInPeriod(date, startDate, endDate);
+  if (iso > today) {
+    throw new HttpError("Date is in the future");
   }
   return iso;
 }
@@ -323,7 +343,8 @@ export async function submitCollectorReport(
     throw new HttpError("Period not found", 404);
   }
   await requireOpenPeriod(db, period.id);
-  const date = assertDateInPeriod(body.date, period.startDate, period.endDate);
+  const today = clockInTimeZone(STORE_TIME_ZONE, Date.now()).date;
+  const date = assertDateOpenForSubmit(body.date, period.startDate, period.endDate, today);
   const kgRaw = body.kg;
   const kg =
     kgRaw === undefined || kgRaw === null || Number.isNaN(kgRaw) || kgRaw <= 0

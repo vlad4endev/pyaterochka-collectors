@@ -1,10 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
 import { getDashboard } from "./dashboard";
-import { requireCollector, requirePeriod, requireSettings } from "./domain";
+import { KG_RATE_RUB, requireCollector, requirePeriod, requireSettings } from "./domain";
 import { eachDateInclusive } from "./dates";
 import { HttpError } from "./errors";
 import { getPeriodSettlement } from "./payments";
-import { getMiniAppUrl } from "./telegram";
+import { getMiniAppUrl, sendTelegramMessage } from "./telegram";
 
 function fmtShort(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
@@ -75,6 +75,84 @@ function formatReportReminder(name: string, dates: string[]): string {
     "Пришли фото ведомости в бот или внеси кг в приложении.",
     ...appHint(),
   ].join("\n");
+}
+
+function formatInvoice(args: {
+  name: string;
+  startDate: string;
+  endDate: string;
+  kg: number;
+  rate: number;
+  amountRub: number;
+  bank: string;
+  payTo: string;
+  deadlineText: string;
+}): string {
+  return [
+    `${args.name}, выставлен счёт за ${fmtShort(args.startDate)}–${fmtShort(args.endDate)}.`,
+    "",
+    `${args.kg} кг × ${args.rate} = ${args.amountRub} ₽`,
+    "",
+    `Переводить на карту ${args.bank} (${args.payTo})`,
+    args.deadlineText,
+  ].join("\n");
+}
+
+export type InvoiceSendResult = {
+  sent: number;
+  skipped: Array<{ collectorName: string; reason: string }>;
+};
+
+export async function sendSettlementInvoices(
+  db: PrismaClient,
+  periodId: string,
+): Promise<InvoiceSendResult> {
+  const settlement = await getPeriodSettlement(db, periodId);
+  const skipped: InvoiceSendResult["skipped"] = [];
+  let sent = 0;
+  let settings: Awaited<ReturnType<typeof requireSettings>>;
+  try {
+    settings = await requireSettings(db);
+  } catch (err) {
+    const reason = err instanceof HttpError ? err.message : "Settings not found";
+    for (const row of settlement.rows) {
+      if (!row.paidAt) {
+        skipped.push({ collectorName: row.collectorName, reason });
+      }
+    }
+    return { sent, skipped };
+  }
+  for (const row of settlement.rows) {
+    if (row.paidAt) {
+      continue;
+    }
+    const collector = await requireCollector(db, row.collectorId);
+    if (!collector.telegramUserId) {
+      skipped.push({ collectorName: row.collectorName, reason: "Collector has no Telegram ID" });
+      continue;
+    }
+    const text = formatInvoice({
+      name: collector.name,
+      startDate: settlement.startDate,
+      endDate: settlement.endDate,
+      kg: row.kg,
+      rate: settlement.rate,
+      amountRub: row.amountRub,
+      bank: settings.bank,
+      payTo: settings.payTo,
+      deadlineText: settings.deadlineText,
+    });
+    try {
+      await sendTelegramMessage(collector.telegramUserId, text);
+      sent += 1;
+    } catch (err) {
+      skipped.push({
+        collectorName: row.collectorName,
+        reason: err instanceof HttpError ? err.message : "Failed to send Telegram message",
+      });
+    }
+  }
+  return { sent, skipped };
 }
 
 function formatPaymentReminder(args: {
@@ -148,8 +226,8 @@ export async function buildReminder(
       startDate: period.startDate,
       endDate: period.endDate,
       kg,
-      rate: period.rate,
-      amountRub: kg * period.rate,
+      rate: KG_RATE_RUB,
+      amountRub: kg * KG_RATE_RUB,
       bank: settings.bank,
       payTo: settings.payTo,
       deadlineText: settings.deadlineText,
