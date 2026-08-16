@@ -65,6 +65,22 @@ export function assertDayOfWeek(value: number | null): number | null {
   return value;
 }
 
+export function addDaysIso(iso: string, days: number): string {
+  return formatUtcYmd(utcMsFromIso(iso) + days * 86_400_000);
+}
+
+export function mondayOfWeek(iso: string): string {
+  const weekday = weekdayFromIso(iso);
+  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
+  return addDaysIso(iso, -daysFromMonday);
+}
+
+export function currentMoscowWeek(nowMs: number): { startDate: string; endDate: string } {
+  const { date } = clockInTimeZone(STORE_TIME_ZONE, nowMs);
+  const startDate = mondayOfWeek(date);
+  return { startDate, endDate: addDaysIso(startDate, 6) };
+}
+
 export const STORE_TIME_ZONE = "Europe/Moscow";
 
 export function clockInTimeZone(

@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { IconPhoto } from "../components/Icons";
-import { api, type Dashboard } from "../lib/api";
+import { api, type Dashboard, type Settlement } from "../lib/api";
 import {
   dayName,
   errorMessage,
   formatKg,
   formatRub,
   fmtShort,
+  periodLabel,
 } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
@@ -21,6 +22,55 @@ type GapGroup = {
   hasTelegram: boolean;
   dates: string[];
 };
+
+function PendingPhoto({
+  entryId,
+  token,
+  hasPhoto,
+}: {
+  entryId: string;
+  token: string;
+  hasPhoto: boolean;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasPhoto) {
+      return;
+    }
+    let objectUrl: string | undefined;
+    let cancelled = false;
+    fetch(`/api/entries/${entryId}/photo`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => (response.ok ? response.blob() : null))
+      .then((blob) => {
+        if (!blob || cancelled) {
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        // Keep placeholder if Telegram file expired or upload is missing.
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [entryId, token, hasPhoto]);
+
+  if (url) {
+    return <img className="photo-ph photo-thumb" src={url} alt="" />;
+  }
+  return (
+    <div className="photo-ph">
+      <IconPhoto />
+    </div>
+  );
+}
 
 function groupGaps(gaps: Dashboard["gaps"]): GapGroup[] {
   const groups = new Map<string, GapGroup>();
@@ -43,10 +93,16 @@ function groupGaps(gaps: Dashboard["gaps"]): GapGroup[] {
 export function HomePage({ periodId }: Props) {
   const { token, refreshData } = useSession();
   const [showMessage, setShowMessage] = useState(false);
+  const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [kgDraft, setKgDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSettlement(null);
+    setShowMessage(false);
+  }, [periodId]);
 
   const { data: dashboard } = useApiQuery(
     Boolean(token),
@@ -64,9 +120,9 @@ export function HomePage({ periodId }: Props) {
     [token, periodId],
   );
   const { data: summary } = useApiQuery(
-    Boolean(token) && showMessage,
+    Boolean(token) && showMessage && !settlement?.text,
     () => api.summary(token ?? "", periodId),
-    [token, periodId, showMessage],
+    [token, periodId, showMessage, settlement?.text],
   );
 
   async function onConfirm(entryId: string, fallbackKg: number | undefined) {
@@ -126,11 +182,32 @@ export function HomePage({ periodId }: Props) {
     }
   }
 
-  async function copySummary() {
-    if (!summary) {
+  async function onCalculate() {
+    if (!token) {
       return;
     }
-    await navigator.clipboard.writeText(summary.text);
+    setError(null);
+    setToast(null);
+    setBusyId("calculate");
+    try {
+      const result = await api.payments.calculate(token, periodId);
+      setSettlement(result);
+      setShowMessage(Boolean(result.text));
+      refreshData();
+      setToast("Расчёт собран");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function copySummary() {
+    const text = settlement?.text ?? summary?.text;
+    if (!text) {
+      return;
+    }
+    await navigator.clipboard.writeText(text);
     setToast("Скопировано");
   }
 
@@ -227,14 +304,17 @@ export function HomePage({ periodId }: Props) {
           pending.map((item) => (
             <div className="review-item" key={item._id}>
               <div className="review-top">
-                <div className="photo-ph">
-                  <IconPhoto />
-                </div>
+                <PendingPhoto
+                  entryId={item._id}
+                  token={token ?? ""}
+                  hasPhoto={Boolean(item.hasPhoto ?? item.telegramFileId)}
+                />
                 <div className="review-info">
                   <div className="name">{item.collectorName}</div>
                   <div className="meta">
                     {fmtShort(item.date)} · {dayName(item.date)}
-                    {item.telegramFileId ? " · есть фото в Telegram" : " · фото пока нет"}
+                    {item.creditedByName ? ` · от ${item.creditedByName}` : ""}
+                    {item.hasPhoto || item.telegramFileId ? " · есть фото" : " · без фото"}
                   </div>
                 </div>
               </div>
@@ -312,6 +392,58 @@ export function HomePage({ periodId }: Props) {
       </div>
 
       <div className="card">
+        <h2>Расчёт</h2>
+        <div className="h2-sub">
+          Собирает по всем участникам подтверждённые кг и сумму за выбранный период
+          {(pending?.length ?? dashboard.pendingCount) > 0
+            ? ` — ${pending?.length ?? dashboard.pendingCount} накладных на проверке в расчёт не войдут`
+            : ""}
+          .
+        </div>
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ marginBottom: settlement ? 4 : 0 }}
+          disabled={busyId === "calculate"}
+          onClick={() => void onCalculate()}
+        >
+          {busyId === "calculate" ? "Считаем…" : "Создать расчёт"}
+        </button>
+        {settlement ? (
+          <>
+            <div className="h2-sub" style={{ marginTop: 16 }}>
+              {periodLabel(settlement.startDate, settlement.endDate)} · {settlement.rate} ₽/кг
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Участник</th>
+                  <th>Кг</th>
+                  <th>Сумма</th>
+                </tr>
+              </thead>
+              <tbody>
+                {settlement.rows.map((row) => (
+                  <tr key={row.collectorId}>
+                    <td>{row.collectorName}</td>
+                    <td>{formatKg(row.kg)} кг</td>
+                    <td>{formatRub(row.amountRub)} ₽</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Итого</td>
+                  <td>{formatKg(settlement.totalKg)} кг</td>
+                  <td>{formatRub(settlement.totalRub)} ₽</td>
+                </tr>
+              </tfoot>
+            </table>
+          </>
+        ) : null}
+      </div>
+
+      <div className="card">
         <h2>Переводы</h2>
         <div className="h2-sub">Отметь, кто уже перевёл за период. Неоплаченным можно напомнить в личку.</div>
         {payments === undefined ? (
@@ -379,11 +511,9 @@ export function HomePage({ periodId }: Props) {
       {showMessage ? (
         <div className="card" style={{ marginTop: 12, maxWidth: 520 }}>
           <h2>Сообщение</h2>
-          {summary === undefined ? (
-            <div className="loading">Собираем текст…</div>
-          ) : (
+          {settlement?.text || summary ? (
             <>
-              <textarea readOnly value={summary.text} />
+              <textarea readOnly value={settlement?.text ?? summary?.text ?? ""} />
               <div className="msg-actions">
                 <button type="button" className="btn-secondary" onClick={() => void copySummary()}>
                   Скопировать
@@ -402,6 +532,8 @@ export function HomePage({ periodId }: Props) {
                 вручную.
               </div>
             </>
+          ) : (
+            <div className="loading">Собираем текст…</div>
           )}
         </div>
       ) : null}

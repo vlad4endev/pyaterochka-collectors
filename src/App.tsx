@@ -98,7 +98,7 @@ function AuthedApp() {
         <div className="card">
           <h2>Нет периода</h2>
           <div className="h2-sub" style={{ marginBottom: 0 }}>
-            Нажмите на плашку периода сверху и создайте двухнедельное окно.
+            Текущая неделя закрыта. Следующая откроется в понедельник.
           </div>
         </div>
       ) : null}

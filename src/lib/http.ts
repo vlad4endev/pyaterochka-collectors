@@ -18,7 +18,8 @@ export async function apiRequest<T>(
   } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (options.body !== undefined) {
+  const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (options.body !== undefined && !isForm) {
     headers["Content-Type"] = "application/json";
   }
   if (options.token) {
@@ -30,7 +31,11 @@ export async function apiRequest<T>(
   const response = await fetch(`/api${path}`, {
     method: options.method ?? "GET",
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: options.body === undefined
+      ? undefined
+      : isForm
+        ? (options.body as FormData)
+        : JSON.stringify(options.body),
   });
   const data: unknown = await response.json().catch(() => null);
   if (!response.ok) {

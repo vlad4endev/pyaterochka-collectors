@@ -13,6 +13,7 @@ import {
   assertWindowHour,
   getOpenPeriod,
   getSettings,
+  ensureCurrentWeekPeriod,
   patchDefaultSettings,
   normalizeName,
   normalizeOptionalTelegram,
@@ -28,11 +29,14 @@ import {
   timingSafeEqualString,
 } from "./lib/errors";
 import { assertReminderKind, buildReminder, buildSummary } from "./lib/messages";
+import { createPeriodSettlement, getPeriodSettlement } from "./lib/payments";
+import { loadInvoicePhoto, saveInvoicePhoto } from "./lib/invoices";
 import {
   createCollectorCreditEntry,
   createCollectorManualEntry,
   getMiniHome,
   requireActiveCollector,
+  submitCollectorReport,
 } from "./lib/miniapp";
 import { restartBot } from "./bot";
 import {
@@ -166,6 +170,7 @@ authed.patch("/collectors/:id", async (c) => {
 });
 
 authed.get("/periods", async (c) => {
+  await ensureCurrentWeekPeriod(db);
   const rows = await db.period.findMany({ orderBy: { startDate: "desc" }, take: 100 });
   return c.json(rows.map(periodDto));
 });
@@ -199,6 +204,25 @@ authed.post("/periods", async (c) => {
   return c.json(row.id);
 });
 
+authed.patch("/periods/:id", async (c) => {
+  const id = c.req.param("id");
+  await requireOpenPeriod(db, id);
+  const body = await c.req.json<{
+    storeTotalRub?: number;
+    rate?: number;
+  }>();
+  await db.period.update({
+    where: { id },
+    data: {
+      ...(body.storeTotalRub !== undefined
+        ? { storeTotalRub: assertStoreTotal(body.storeTotalRub) }
+        : {}),
+      ...(body.rate !== undefined ? { rate: assertRate(body.rate) } : {}),
+    },
+  });
+  return c.json(null);
+});
+
 authed.post("/periods/:id/close", async (c) => {
   const id = c.req.param("id");
   const period = await requirePeriod(db, id);
@@ -226,9 +250,28 @@ authed.get("/entries/pending", async (c) => {
   const items = [];
   for (const row of rows) {
     const collector = await db.collector.findUnique({ where: { id: row.collectorId } });
-    items.push(pendingDto(row, collector?.name ?? "Unknown"));
+    const creditedBy = row.creditedByCollectorId
+      ? await db.collector.findUnique({ where: { id: row.creditedByCollectorId } })
+      : null;
+    items.push({
+      ...pendingDto(row, collector?.name ?? "Unknown"),
+      creditedByName: creditedBy?.name,
+      hasPhoto: Boolean(row.telegramFileId),
+    });
   }
   return c.json(items);
+});
+
+authed.get("/entries/:id/photo", async (c) => {
+  const entry = await db.entry.findUnique({ where: { id: c.req.param("id") } });
+  if (!entry?.telegramFileId) {
+    throw new HttpError("Photo not found", 404);
+  }
+  const photo = await loadInvoicePhoto(entry.telegramFileId);
+  return c.body(new Uint8Array(photo.bytes), 200, {
+    "Content-Type": photo.contentType,
+    "Cache-Control": "private, max-age=300",
+  });
 });
 
 authed.post("/entries/:id/confirm", async (c) => {
@@ -373,36 +416,20 @@ authed.get("/payments", async (c) => {
   if (!periodId) {
     throw new HttpError("periodId is required");
   }
-  const period = await requirePeriod(db, periodId);
-  const entries = await db.entry.findMany({
-    where: { periodId, status: "confirmed" },
-    take: 500,
-  });
-  const kgByCollector = new Map<string, number>();
-  for (const entry of entries) {
-    if (entry.kg === null) {
-      continue;
-    }
-    kgByCollector.set(entry.collectorId, (kgByCollector.get(entry.collectorId) ?? 0) + entry.kg);
+  const settlement = await getPeriodSettlement(db, periodId);
+  return c.json(settlement.rows);
+});
+
+authed.post("/payments/calculate", async (c) => {
+  const body = await c.req.json<{ periodId?: string }>();
+  const periodId = body.periodId ?? "";
+  if (!periodId) {
+    throw new HttpError("periodId is required");
   }
-  const payments = await db.payment.findMany({ where: { periodId }, take: 200 });
-  const paymentByCollector = new Map(payments.map((payment) => [payment.collectorId, payment]));
-  const rows = [];
-  for (const [collectorId, kg] of kgByCollector) {
-    const collector = await db.collector.findUnique({ where: { id: collectorId } });
-    const payment = paymentByCollector.get(collectorId);
-    rows.push({
-      collectorId,
-      collectorName: collector?.name ?? "Unknown",
-      kg,
-      amountRub: kg * period.rate,
-      paidAt: payment?.paidAt?.getTime() ?? null,
-      paymentId: payment?.id ?? null,
-      hasTelegram: Boolean(collector?.telegramUserId),
-    });
-  }
-  rows.sort((a, b) => a.collectorName.localeCompare(b.collectorName, "ru"));
-  return c.json(rows);
+  const settlement = await createPeriodSettlement(db, periodId);
+  const settings = await getSettings(db);
+  const summary = settings ? await buildSummary(db, periodId) : { text: "" };
+  return c.json({ ...settlement, text: summary.text });
 });
 
 authed.post("/payments/mark-paid", async (c) => {
@@ -613,6 +640,57 @@ mini.get("/home", async (c) => {
       Date.now(),
     ),
   );
+});
+
+function isUploadFile(value: unknown): value is { arrayBuffer: () => Promise<ArrayBuffer> } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "arrayBuffer" in value &&
+    typeof (value as { arrayBuffer?: unknown }).arrayBuffer === "function"
+  );
+}
+
+async function readMiniReport(c: { req: { header: (name: string) => string | undefined; json: <T>() => Promise<T>; parseBody: () => Promise<Record<string, string | File>> } }) {
+  const contentType = c.req.header("content-type") ?? "";
+  if (contentType.includes("multipart/form-data")) {
+    const parsed = await c.req.parseBody();
+    const kgRaw = typeof parsed.kg === "string" ? parsed.kg.trim() : "";
+    return {
+      date: typeof parsed.date === "string" ? parsed.date : "",
+      kg: kgRaw.length > 0 ? Number(kgRaw) : undefined,
+      note: typeof parsed.note === "string" ? parsed.note : undefined,
+      forCollectorId: typeof parsed.collectorId === "string" ? parsed.collectorId : undefined,
+      photo: isUploadFile(parsed.photo) ? parsed.photo : undefined,
+    };
+  }
+  const body = await c.req.json<{
+    date?: string;
+    kg?: number;
+    note?: string;
+    collectorId?: string;
+  }>();
+  return {
+    date: body.date ?? "",
+    kg: body.kg,
+    note: body.note,
+    forCollectorId: body.collectorId,
+    photo: undefined,
+  };
+}
+
+mini.post("/entries", async (c) => {
+  const collector = requireActiveCollector(c.get("collector"));
+  const body = await readMiniReport(c);
+  const photoRef = body.photo ? await saveInvoicePhoto(body.photo) : undefined;
+  const id = await submitCollectorReport(db, collector, {
+    date: body.date,
+    kg: body.kg,
+    note: body.note,
+    forCollectorId: body.forCollectorId,
+    photoRef,
+  });
+  return c.json(id);
 });
 
 mini.post("/entries/manual", async (c) => {

@@ -1,8 +1,9 @@
 import type { Collector, Period, PrismaClient, Settings } from "@prisma/client";
-import { assertDate, assertDayOfWeek } from "./dates";
+import { assertDate, assertDayOfWeek, currentMoscowWeek } from "./dates";
 import { HttpError } from "./errors";
 
-export async function getOpenPeriod(db: PrismaClient): Promise<Period | null> {
+export async function getOpenPeriod(db: PrismaClient, nowMs = Date.now()): Promise<Period | null> {
+  await ensureCurrentWeekPeriod(db, nowMs);
   return await db.period.findFirst({ where: { status: "open" } });
 }
 
@@ -142,3 +143,47 @@ export function assertPeriodDates(startDate: string, endDate: string): void {
 }
 
 export { assertDate, assertDayOfWeek };
+
+const DEFAULT_WEEK_RATE = 20;
+const DEFAULT_WEEK_STORE_TOTAL = 8000;
+
+export async function ensureCurrentWeekPeriod(
+  db: PrismaClient,
+  nowMs = Date.now(),
+): Promise<Period> {
+  const { startDate, endDate } = currentMoscowWeek(nowMs);
+  const sameWeek = await db.period.findUnique({ where: { startDate } });
+  if (sameWeek) {
+    return sameWeek;
+  }
+
+  const open = await db.period.findFirst({ where: { status: "open" } });
+  if (open) {
+    if (open.startDate <= startDate && open.endDate >= endDate) {
+      return open;
+    }
+    if (open.endDate >= startDate) {
+      return open;
+    }
+    await db.period.update({ where: { id: open.id }, data: { status: "closed" } });
+  }
+
+  const last = await db.period.findFirst({ orderBy: { startDate: "desc" } });
+  try {
+    return await db.period.create({
+      data: {
+        startDate,
+        endDate,
+        storeTotalRub: last?.storeTotalRub ?? DEFAULT_WEEK_STORE_TOTAL,
+        rate: last?.rate ?? DEFAULT_WEEK_RATE,
+        status: "open",
+      },
+    });
+  } catch {
+    const raced = await db.period.findUnique({ where: { startDate } });
+    if (raced) {
+      return raced;
+    }
+    throw new HttpError("Failed to open the current week", 500);
+  }
+}

@@ -1,7 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
 import { getDashboard } from "./dashboard";
 import { requireCollector, requirePeriod, requireSettings } from "./domain";
+import { eachDateInclusive } from "./dates";
 import { HttpError } from "./errors";
+import { getPeriodSettlement } from "./payments";
 import { getMiniAppUrl } from "./telegram";
 
 function fmtShort(iso: string): string {
@@ -9,39 +11,19 @@ function fmtShort(iso: string): string {
 }
 
 export async function buildSummary(db: PrismaClient, periodId: string) {
-  const period = await requirePeriod(db, periodId);
   const settings = await requireSettings(db);
-  const entries = await db.entry.findMany({
-    where: { periodId, status: "confirmed" },
-    take: 500,
-  });
-  const totals = new Map<string, { name: string; kg: number }>();
-  for (const entry of entries) {
-    if (entry.kg === null) {
-      continue;
-    }
-    const current = totals.get(entry.collectorId);
-    if (current) {
-      current.kg += entry.kg;
-    } else {
-      const collector = await db.collector.findUnique({ where: { id: entry.collectorId } });
-      totals.set(entry.collectorId, {
-        name: collector?.name ?? "Unknown",
-        kg: entry.kg,
-      });
-    }
-  }
-  const rows = [...totals.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  const totalKg = rows.reduce((sum, row) => sum + row.kg, 0);
-  const totalRub = totalKg * period.rate;
+  const settlement = await getPeriodSettlement(db, periodId);
+  const { startDate, endDate, rate, rows, totalKg, totalRub } = settlement;
+  const dayCount = eachDateInclusive(startDate, endDate).length;
+  const spanLabel = dayCount <= 7 ? "ЗА НЕДЕЛЮ" : dayCount <= 14 ? "ЗА 2 НЕДЕЛИ" : `ЗА ${dayCount} ДНЕЙ`;
   const lines = [
-    "⚠️ ПОДСЧИТАНО ЗА 2 НЕДЕЛИ",
+    `⚠️ ПОДСЧИТАНО ${spanLabel}`,
     "",
-    `💳 Оплата с ${fmtShort(period.startDate)} по ${fmtShort(period.endDate)}. ${totalRub} руб. = общий вес: ${totalKg} кг`,
+    `💳 Оплата с ${fmtShort(startDate)} по ${fmtShort(endDate)}. ${totalRub} руб. = общий вес: ${totalKg} кг`,
     "",
   ];
   for (const row of rows) {
-    lines.push(`▫️ ${row.name} - ${row.kg}*${period.rate} = ${row.kg * period.rate} руб`);
+    lines.push(`▫️ ${row.collectorName} - ${row.kg}*${rate} = ${row.kg * rate} руб`);
   }
   lines.push(
     "",
@@ -64,7 +46,7 @@ function appHint(): string[] {
   if (!getMiniAppUrl()) {
     return [];
   }
-  return ["", "Открой приложение в боте — там можно внести кг."];
+  return ["", "Открой приложение в боте — там сумма за период и можно внести кг с фото."];
 }
 
 function daysWord(count: number): string {
@@ -90,7 +72,7 @@ function formatReportReminder(name: string, dates: string[]): string {
     heading,
     ...(dates.length > 1 ? ["", listed] : []),
     "",
-    "Пришли фото накладной в бот или внеси кг вручную.",
+    "Пришли фото ведомости в бот или внеси кг в приложении.",
     ...appHint(),
   ].join("\n");
 }

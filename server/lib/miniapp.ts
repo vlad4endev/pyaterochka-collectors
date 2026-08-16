@@ -22,7 +22,21 @@ export type MiniEntry = {
   source: "invoice" | "manual";
   status: "pending" | "confirmed" | "rejected";
   creditedByName?: string;
+  creditedForName?: string;
+  hasPhoto: boolean;
   note?: string;
+};
+
+export type MiniPerson = {
+  _id: string;
+  name: string;
+  dayOfWeek: number | null;
+};
+
+export type MiniDay = {
+  date: string;
+  weekday: number;
+  scheduled: MiniPerson[];
 };
 
 export type MiniHome = {
@@ -54,6 +68,7 @@ export type MiniHome = {
     isMyDay: boolean;
     windowStatus: "not-today" | "before" | "open" | "after";
   };
+  days: MiniDay[];
   me: {
     kg: number;
     amountRub: number;
@@ -61,7 +76,7 @@ export type MiniHome = {
     entries: MiniEntry[];
     gaps: Array<{ date: string }>;
   } | null;
-  others: Array<{ _id: string; name: string }>;
+  others: MiniPerson[];
 };
 
 export async function findCollectorByTelegram(
@@ -101,6 +116,10 @@ function windowStatus(args: {
   return "open";
 }
 
+function toPerson(row: Collector): MiniPerson {
+  return { _id: row.id, name: row.name, dayOfWeek: row.dayOfWeek };
+}
+
 export async function getMiniHome(
   db: PrismaClient,
   telegram: { id: number; firstName: string },
@@ -128,107 +147,46 @@ export async function getMiniHome(
     }),
   };
 
+  const collectors = await db.collector.findMany({
+    take: 100,
+    orderBy: { name: "asc" },
+  });
+  const active = collectors.filter((row) => row.active);
   const others = collector
-    ? (await db.collector.findMany({ where: { active: true }, take: 100, orderBy: { name: "asc" } }))
-        .filter((row) => row.id !== collector.id)
-        .map((row) => ({ _id: row.id, name: row.name }))
+    ? active.filter((row) => row.id !== collector.id).map(toPerson)
+    : [];
+  const days: MiniDay[] = period
+    ? eachDateInclusive(period.startDate, period.endDate).map((date) => {
+        const dayWeekday = weekdayFromIso(date);
+        return {
+          date,
+          weekday: dayWeekday,
+          scheduled: active
+            .filter((row) => row.dayOfWeek === dayWeekday)
+            .map(toPerson),
+        };
+      })
     : [];
 
-  if (!collector || !period) {
-    return {
-      telegram: { id: telegramUserId, firstName: telegram.firstName },
-      collector: collector
-        ? {
-            _id: collector.id,
-            name: collector.name,
-            dayOfWeek: collector.dayOfWeek,
-            active: collector.active,
-          }
-        : null,
-      period: period
-        ? {
-            _id: period.id,
-            startDate: period.startDate,
-            endDate: period.endDate,
-            rate: period.rate,
-            status: period.status,
-          }
-        : null,
-      settings: settings
-        ? {
-            windowStart: settings.windowStart,
-            windowEnd: settings.windowEnd,
-            bank: settings.bank,
-            payTo: settings.payTo,
-            deadlineText: settings.deadlineText,
-          }
-        : null,
-      today,
-      me: null,
-      others,
-    };
-  }
-
-  const entries = await db.entry.findMany({
-    where: { periodId: period.id, collectorId: collector.id },
-    take: 200,
-    orderBy: { date: "desc" },
-  });
-  let kg = 0;
-  const itemRows: MiniEntry[] = [];
-  for (const entry of entries) {
-    if (entry.status === "confirmed" && entry.kg !== null) {
-      kg += entry.kg;
-    }
-    const creditedBy = entry.creditedByCollectorId
-      ? await db.collector.findUnique({ where: { id: entry.creditedByCollectorId } })
-      : null;
-    itemRows.push({
-      _id: entry.id,
-      date: entry.date,
-      kg: entry.kg ?? undefined,
-      source: entry.source,
-      status: entry.status,
-      creditedByName: creditedBy?.name,
-      note: entry.note ?? undefined,
-    });
-  }
-
-  const payment = await db.payment.findUnique({
-    where: { periodId_collectorId: { periodId: period.id, collectorId: collector.id } },
-  });
-
-  const gaps: Array<{ date: string }> = [];
-  if (collector.active && collector.dayOfWeek !== null) {
-    for (const date of eachDateInclusive(period.startDate, period.endDate)) {
-      if (weekdayFromIso(date) !== collector.dayOfWeek) {
-        continue;
-      }
-      const has = entries.some(
-        (entry) =>
-          entry.date === date && (entry.status === "confirmed" || entry.status === "pending"),
-      );
-      if (!has) {
-        gaps.push({ date });
-      }
-    }
-  }
-
-  return {
+  const base = {
     telegram: { id: telegramUserId, firstName: telegram.firstName },
-    collector: {
-      _id: collector.id,
-      name: collector.name,
-      dayOfWeek: collector.dayOfWeek,
-      active: collector.active,
-    },
-    period: {
-      _id: period.id,
-      startDate: period.startDate,
-      endDate: period.endDate,
-      rate: period.rate,
-      status: period.status,
-    },
+    collector: collector
+      ? {
+          _id: collector.id,
+          name: collector.name,
+          dayOfWeek: collector.dayOfWeek,
+          active: collector.active,
+        }
+      : null,
+    period: period
+      ? {
+          _id: period.id,
+          startDate: period.startDate,
+          endDate: period.endDate,
+          rate: period.rate,
+          status: period.status,
+        }
+      : null,
     settings: settings
       ? {
           windowStart: settings.windowStart,
@@ -239,6 +197,73 @@ export async function getMiniHome(
         }
       : null,
     today,
+    days,
+    others,
+  };
+
+  if (!collector || !period) {
+    return { ...base, me: null };
+  }
+
+  const entries = await db.entry.findMany({
+    where: {
+      periodId: period.id,
+      OR: [{ collectorId: collector.id }, { creditedByCollectorId: collector.id }],
+    },
+    take: 200,
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+  });
+  const byId = new Map(collectors.map((row) => [row.id, row]));
+  let kg = 0;
+  const itemRows: MiniEntry[] = [];
+  for (const entry of entries) {
+    if (entry.collectorId === collector.id && entry.status === "confirmed" && entry.kg !== null) {
+      kg += entry.kg;
+    }
+    const creditedBy = entry.creditedByCollectorId
+      ? byId.get(entry.creditedByCollectorId)
+      : undefined;
+    const creditedFor =
+      entry.creditedByCollectorId === collector.id && entry.collectorId !== collector.id
+        ? byId.get(entry.collectorId)
+        : undefined;
+    itemRows.push({
+      _id: entry.id,
+      date: entry.date,
+      kg: entry.kg ?? undefined,
+      source: entry.source,
+      status: entry.status,
+      creditedByName:
+        entry.collectorId === collector.id ? creditedBy?.name : undefined,
+      creditedForName: creditedFor?.name,
+      hasPhoto: Boolean(entry.telegramFileId),
+      note: entry.note ?? undefined,
+    });
+  }
+
+  const payment = await db.payment.findUnique({
+    where: { periodId_collectorId: { periodId: period.id, collectorId: collector.id } },
+  });
+
+  const myEntries = entries.filter((entry) => entry.collectorId === collector.id);
+  const gaps: Array<{ date: string }> = [];
+  if (collector.active && collector.dayOfWeek !== null) {
+    for (const date of eachDateInclusive(period.startDate, period.endDate)) {
+      if (weekdayFromIso(date) !== collector.dayOfWeek) {
+        continue;
+      }
+      const has = myEntries.some(
+        (entry) =>
+          entry.date === date && (entry.status === "confirmed" || entry.status === "pending"),
+      );
+      if (!has) {
+        gaps.push({ date });
+      }
+    }
+  }
+
+  return {
+    ...base,
     me: {
       kg,
       amountRub: kg * period.rate,
@@ -246,7 +271,6 @@ export async function getMiniHome(
       entries: itemRows,
       gaps,
     },
-    others,
   };
 }
 
@@ -263,24 +287,11 @@ export async function createCollectorManualEntry(
   collector: Collector,
   body: { date: string; kg: number; note?: string },
 ): Promise<string> {
-  const period = await getOpenPeriod(db);
-  if (!period) {
-    throw new HttpError("Period not found", 404);
-  }
-  await requireOpenPeriod(db, period.id);
-  const date = assertDateInPeriod(body.date, period.startDate, period.endDate);
-  const row = await db.entry.create({
-    data: {
-      periodId: period.id,
-      collectorId: collector.id,
-      date,
-      kg: assertPositiveKg(body.kg),
-      source: "manual",
-      status: "pending",
-      note: body.note?.trim() || undefined,
-    },
+  return await submitCollectorReport(db, collector, {
+    date: body.date,
+    kg: body.kg,
+    note: body.note,
   });
-  return row.id;
 }
 
 export async function createCollectorCreditEntry(
@@ -288,25 +299,57 @@ export async function createCollectorCreditEntry(
   collector: Collector,
   body: { collectorId: string; date: string; kg: number; note?: string },
 ): Promise<string> {
-  if (body.collectorId === collector.id) {
-    throw new HttpError("creditedByCollectorId must be a different collector");
-  }
+  return await submitCollectorReport(db, collector, {
+    date: body.date,
+    kg: body.kg,
+    note: body.note,
+    forCollectorId: body.collectorId,
+  });
+}
+
+export async function submitCollectorReport(
+  db: PrismaClient,
+  collector: Collector,
+  body: {
+    date: string;
+    kg?: number;
+    note?: string;
+    forCollectorId?: string;
+    photoRef?: string;
+  },
+): Promise<string> {
   const period = await getOpenPeriod(db);
   if (!period) {
     throw new HttpError("Period not found", 404);
   }
   await requireOpenPeriod(db, period.id);
-  await requireCollector(db, body.collectorId);
   const date = assertDateInPeriod(body.date, period.startDate, period.endDate);
+  const kgRaw = body.kg;
+  const kg =
+    kgRaw === undefined || kgRaw === null || Number.isNaN(kgRaw) || kgRaw <= 0
+      ? undefined
+      : assertPositiveKg(kgRaw);
+  if (!kg && !body.photoRef) {
+    throw new HttpError("Add kilograms or a photo");
+  }
+
+  const forCollectorId = body.forCollectorId?.trim() || undefined;
+  if (forCollectorId && forCollectorId !== collector.id) {
+    await requireCollector(db, forCollectorId);
+  }
+  const targetId = forCollectorId && forCollectorId !== collector.id ? forCollectorId : collector.id;
+  const creditedByCollectorId = targetId === collector.id ? undefined : collector.id;
+
   const row = await db.entry.create({
     data: {
       periodId: period.id,
-      collectorId: body.collectorId,
-      creditedByCollectorId: collector.id,
+      collectorId: targetId,
+      creditedByCollectorId,
       date,
-      kg: assertPositiveKg(body.kg),
-      source: "manual",
+      kg,
+      source: body.photoRef ? "invoice" : "manual",
       status: "pending",
+      telegramFileId: body.photoRef,
       note: body.note?.trim() || undefined,
     },
   });

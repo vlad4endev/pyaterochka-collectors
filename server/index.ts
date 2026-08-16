@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { app as api } from "./app";
 import { startBot, stopBot } from "./bot";
 import { db } from "./db";
+import { ensureCurrentWeekPeriod } from "./lib/domain";
 import { startDailyReportReminders, stopDailyReportReminders } from "./lib/scheduler";
 
 const port = Number(process.env.PORT ?? 3001);
@@ -62,6 +63,10 @@ void startBot()
     console.error("Failed to start Telegram bot", err);
     startDailyReportReminders();
   });
+
+void ensureCurrentWeekPeriod(db).catch((err) => {
+  console.error("Failed to open the current week", err);
+});
 
 let shuttingDown = false;
 

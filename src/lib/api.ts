@@ -26,6 +26,8 @@ export type PendingEntry = {
   date: string;
   kg?: number;
   telegramFileId?: string;
+  creditedByName?: string;
+  hasPhoto?: boolean;
 };
 
 export type HistoryRow = {
@@ -48,6 +50,17 @@ export type PaymentRow = {
   paidAt: number | null;
   paymentId: string | null;
   hasTelegram: boolean;
+};
+
+export type Settlement = {
+  periodId: string;
+  startDate: string;
+  endDate: string;
+  rate: number;
+  rows: PaymentRow[];
+  totalKg: number;
+  totalRub: number;
+  text: string;
 };
 
 export type Settings = {
@@ -77,7 +90,15 @@ export type MiniEntry = {
   source: "invoice" | "manual";
   status: "pending" | "confirmed" | "rejected";
   creditedByName?: string;
+  creditedForName?: string;
+  hasPhoto: boolean;
   note?: string;
+};
+
+export type MiniPerson = {
+  _id: string;
+  name: string;
+  dayOfWeek: number | null;
 };
 
 export type MiniHome = {
@@ -109,6 +130,11 @@ export type MiniHome = {
     isMyDay: boolean;
     windowStatus: "not-today" | "before" | "open" | "after";
   };
+  days: Array<{
+    date: string;
+    weekday: number;
+    scheduled: MiniPerson[];
+  }>;
   me: {
     kg: number;
     amountRub: number;
@@ -116,7 +142,7 @@ export type MiniHome = {
     entries: MiniEntry[];
     gaps: Array<{ date: string }>;
   } | null;
-  others: Array<{ _id: string; name: string }>;
+  others: MiniPerson[];
 };
 
 export type Dashboard = {
@@ -187,6 +213,11 @@ export const api = {
       token: string,
       body: { startDate: string; endDate: string; storeTotalRub: number; rate: number },
     ) => apiRequest<string>("/periods", { method: "POST", token, body }),
+    update: (
+      token: string,
+      id: string,
+      body: { storeTotalRub?: number; rate?: number },
+    ) => apiRequest<null>(`/periods/${id}`, { method: "PATCH", token, body }),
     close: (token: string, id: string) =>
       apiRequest<null>(`/periods/${id}/close`, { method: "POST", token }),
   },
@@ -222,6 +253,12 @@ export const api = {
   payments: {
     list: (token: string, periodId: string) =>
       apiRequest<PaymentRow[]>(`/payments?periodId=${encodeURIComponent(periodId)}`, { token }),
+    calculate: (token: string, periodId: string) =>
+      apiRequest<Settlement>("/payments/calculate", {
+        method: "POST",
+        token,
+        body: { periodId },
+      }),
     markPaid: (token: string, periodId: string, collectorId: string) =>
       apiRequest<string>("/payments/mark-paid", {
         method: "POST",
@@ -297,23 +334,45 @@ export const api = {
   miniapp: {
     home: (initData: string) =>
       apiRequest<MiniHome>("/miniapp/home", { telegramInitData: initData }),
-    createManual: (
+    createEntry: (
       initData: string,
-      body: { date: string; kg: number; note?: string },
-    ) =>
-      apiRequest<string>("/miniapp/entries/manual", {
+      body: {
+        date: string;
+        kg?: number;
+        collectorId?: string;
+        note?: string;
+        photo?: File;
+      },
+    ) => {
+      if (body.photo) {
+        const form = new FormData();
+        form.append("date", body.date);
+        if (body.kg !== undefined) {
+          form.append("kg", String(body.kg));
+        }
+        if (body.collectorId) {
+          form.append("collectorId", body.collectorId);
+        }
+        if (body.note) {
+          form.append("note", body.note);
+        }
+        form.append("photo", body.photo);
+        return apiRequest<string>("/miniapp/entries", {
+          method: "POST",
+          telegramInitData: initData,
+          body: form,
+        });
+      }
+      return apiRequest<string>("/miniapp/entries", {
         method: "POST",
         telegramInitData: initData,
-        body,
-      }),
-    createCredit: (
-      initData: string,
-      body: { collectorId: string; date: string; kg: number; note?: string },
-    ) =>
-      apiRequest<string>("/miniapp/entries/credit", {
-        method: "POST",
-        telegramInitData: initData,
-        body,
-      }),
+        body: {
+          date: body.date,
+          kg: body.kg,
+          collectorId: body.collectorId,
+          note: body.note,
+        },
+      });
+    },
   },
 };

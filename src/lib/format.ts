@@ -8,6 +8,8 @@ export const DAY_NAMES = [
   "Суббота",
 ] as const;
 
+export const DAY_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"] as const;
+
 export function fmtShort(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 }
@@ -58,25 +60,6 @@ export function periodLabel(startDate: string, endDate: string): string {
   return `${weeks} · ${fmtShort(startDate)}–${fmtShort(endDate)}`;
 }
 
-export function todayLocalIso(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-export function addDaysLocal(iso: string, days: number): string {
-  const year = Number(iso.slice(0, 4));
-  const month = Number(iso.slice(5, 7));
-  const day = Number(iso.slice(8, 10));
-  const date = new Date(year, month - 1, day + days);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 export function mondayPad(weekday: number): number {
   return weekday === 0 ? 6 : weekday - 1;
 }
@@ -95,6 +78,7 @@ const ERROR_RU: Record<string, string> = {
   "Session expired": "Сессия истекла, войдите снова",
   "ADMIN_PASSWORD is not configured": "Пароль админки не задан на сервере",
   "An open period already exists": "Уже есть открытый период — сначала закройте его",
+  "Failed to open the current week": "Не удалось открыть текущую неделю",
   "Period is already closed": "Период уже закрыт",
   "Period is closed": "Период закрыт",
   "Period not found": "Период не найден",
@@ -106,6 +90,7 @@ const ERROR_RU: Record<string, string> = {
   "Bank, payTo and deadlineText are required": "Заполните банк, карту и дедлайн",
   "windowStart must be before windowEnd": "Начало окна должно быть раньше конца",
   "Collector has no confirmed kg in this period": "У участника нет подтверждённых кг",
+  "No confirmed kilograms in this period": "Нет подтверждённых кг в этом периоде",
   "BOT_TOKEN is not configured": "Токен бота не задан — откройте раздел Telegram в админке",
   "Invalid bot token": "Неверный токен бота — проверьте у @BotFather",
   "MINIAPP_URL must be an https URL": "URL мини-приложения должен начинаться с https://",
@@ -125,6 +110,11 @@ const ERROR_RU: Record<string, string> = {
   "Collector is inactive": "Ты скрыт в списке участников",
   "Date is outside the open period": "Дата не входит в текущий период",
   "creditedByCollectorId must be a different collector": "Засчитать можно только за другого участника",
+  "kg must be greater than 0": "Укажи килограммы больше нуля",
+  "Add kilograms or a photo": "Укажи кг или загрузи фото ведомости",
+  "Photo is too large": "Фото слишком большое — до 8 МБ",
+  "Unsupported photo type": "Нужно фото: JPG, PNG или HEIC",
+  "Photo not found": "Фото не найдено",
 };
 
 export function errorMessage(err: unknown): string {

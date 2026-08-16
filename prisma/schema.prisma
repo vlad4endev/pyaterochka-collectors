@@ -51,7 +51,7 @@ model Period {
   payments      Payment[]
 
   @@index([status])
-  @@index([startDate])
+  @@unique([startDate])
 }
 
 model Entry {
