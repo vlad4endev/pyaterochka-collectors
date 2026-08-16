@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { BrandLogo } from "./BrandLogo";
 import { PeriodPicker } from "./PeriodPicker";
 import {
   IconCalendar,
@@ -84,7 +85,7 @@ export function Shell({
           <span />
         </button>
         <div className="mobile-brand">
-          <span className="brand-mark">5</span>
+          <BrandLogo />
           <strong>Админка</strong>
         </div>
       </div>
@@ -93,7 +94,7 @@ export function Shell({
       ) : null}
       <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
         <div className="brand">
-          <span className="brand-mark">5</span>
+          <BrandLogo />
           <div>
             <div className="t">Пятёрка</div>
             <div className="s">Админка сборщиков</div>

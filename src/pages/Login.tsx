@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { BrandLogo } from "../components/BrandLogo";
 import { api } from "../lib/api";
 import { errorMessage } from "../lib/format";
 import { useSession } from "../session";
@@ -27,7 +28,7 @@ export function LoginPage() {
     <div className="login-wrap">
       <form className="login-card" onSubmit={(event) => void onSubmit(event)}>
         <div className="login-brand">
-          <span className="brand-mark">5</span>
+          <BrandLogo className="brand-mark login-mark" size={48} />
           <div>
             <h1>Вход в админку</h1>
             <div className="sub">Пятёрка на бульваре</div>

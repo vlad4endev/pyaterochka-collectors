@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { BrandLogo } from "../components/BrandLogo";
 import { api, type MiniHome, type MiniPerson } from "../lib/api";
 import {
   DAY_NAMES,
@@ -302,6 +303,7 @@ export function MiniAppPage() {
     return (
       <div className="miniapp">
         <div className="ma-panel">
+          <BrandLogo className="ma-logo" size={48} />
           <div className="ma-kicker">Пятёрка на бульваре</div>
           <h1 className="ma-title">Открой из Telegram</h1>
           <p className="ma-lead">Нажми «Открыть приложение» в боте — подтянутся кг и сумма.</p>
@@ -314,6 +316,7 @@ export function MiniAppPage() {
     return (
       <div className="miniapp">
         <div className="ma-panel">
+          <BrandLogo className="ma-logo" size={48} />
           <h1 className="ma-title">Не открылось</h1>
           <p className="ma-lead">{error}</p>
         </div>
@@ -344,9 +347,12 @@ export function MiniAppPage() {
   return (
     <div className="miniapp">
       <header className="ma-head">
-        <div>
-          <div className="ma-kicker">Пятёрка на бульваре</div>
-          <h1 className="ma-hello">{home.collector?.name ?? home.telegram.firstName}</h1>
+        <div className="ma-brand">
+          <BrandLogo className="ma-logo" size={40} />
+          <div>
+            <div className="ma-kicker">Пятёрка на бульваре</div>
+            <h1 className="ma-hello">{home.collector?.name ?? home.telegram.firstName}</h1>
+          </div>
         </div>
         {home.period ? (
           <div className="ma-week">

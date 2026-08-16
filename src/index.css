@@ -109,17 +109,18 @@ body:has(.shell) {
   flex-shrink: 0;
 }
 .brand-mark {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--lime);
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  object-fit: cover;
+  background: #fff;
   flex-shrink: 0;
+  display: block;
+}
+.login-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
 }
 .brand .t {
   font-size: 15px;
@@ -1090,9 +1091,32 @@ body.tg-miniapp {
 .ma-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 12px;
   margin: 4px 2px 16px;
+}
+
+.ma-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ma-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #fff;
+  flex-shrink: 0;
+  display: block;
+}
+
+.ma-panel > .ma-logo {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 10px;
 }
 
 .ma-hello {
