@@ -11,7 +11,7 @@ import {
   initials,
   weekdayFromIso,
 } from "../lib/format";
-import { bootMaxWebApp, getMaxWebApp } from "../lib/max";
+import { bootMaxWebApp } from "../lib/max";
 import { bootTelegramWebApp } from "../lib/telegram";
 
 function haptic(kind: "success" | "error" | "warning" | "select") {
