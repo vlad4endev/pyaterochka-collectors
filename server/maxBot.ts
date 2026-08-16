@@ -1,4 +1,5 @@
 import { Bot, Keyboard, MaxError, type Context } from "@maxhub/max-bot-api";
+import type { Button } from "@maxhub/max-bot-api/types";
 import { db } from "./db";
 import { patchDefaultSettings } from "./lib/domain";
 import { HttpError } from "./lib/errors";
@@ -19,28 +20,24 @@ type OpenAppButton = {
   web_app?: string;
 };
 
+function appKeyboard() {
+  const url = getMiniAppUrl();
+  if (url) {
+    const button: OpenAppButton = { type: "open_app", text: MINI_APP_BUTTON, web_app: url };
+    return Keyboard.inlineKeyboard([[button as unknown as Button]]);
+  }
+  const link = maxMiniAppLink(getMaxBotUsername());
+  if (!link) {
+    return undefined;
+  }
+  return Keyboard.inlineKeyboard([[Keyboard.button.link(MINI_APP_BUTTON, link)]]);
+}
+
 let currentBot: Bot | null = null;
 let restartChain: Promise<void> = Promise.resolve();
 
 function firstName(name: string): string {
   return name.split(" ")[0] ?? name;
-}
-
-function appKeyboard() {
-  const url = getMiniAppUrl();
-  const username = getMaxBotUsername();
-  const buttons: Array<OpenAppButton | ReturnType<typeof Keyboard.button.link>> = [];
-  if (url) {
-    buttons.push({ type: "open_app", text: MINI_APP_BUTTON, web_app: url });
-  }
-  const link = maxMiniAppLink(username);
-  if (link && buttons.length === 0) {
-    buttons.push(Keyboard.button.link(MINI_APP_BUTTON, link));
-  }
-  if (buttons.length === 0) {
-    return undefined;
-  }
-  return Keyboard.inlineKeyboard([buttons]);
 }
 
 async function sendGreeting(ctx: Context): Promise<void> {
@@ -126,8 +123,11 @@ export function createMaxBot(token: string): Bot {
       return;
     }
     const message = ctx.message;
-    const from = ctx.user;
-    if (!message || !from) {
+    if (!message) {
+      return;
+    }
+    const from = message.sender;
+    if (!from) {
       return;
     }
     const image = message.body.attachments?.find((item) => item.type === "image");
