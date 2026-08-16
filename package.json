@@ -1,0 +1,44 @@
+{
+  "name": "pyaterochka-collectors",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "db:up": "docker compose up -d",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.app.json && vite build",
+    "preview": "vite preview",
+    "lint": "eslint server prisma/seed.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.app.json"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@prisma/client": "^6.19.3",
+    "dotenv": "^17.4.2",
+    "grammy": "^1.45.1",
+    "hono": "^4.13.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^10.0.5",
+    "eslint": "^10.8.1",
+    "prisma": "^6.19.3",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1"
+  }
+}

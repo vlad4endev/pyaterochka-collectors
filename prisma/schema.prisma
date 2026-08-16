@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PeriodStatus {
+  open
+  closed
+}
+
+enum EntrySource {
+  invoice
+  manual
+}
+
+enum EntryStatus {
+  pending
+  confirmed
+  rejected
+}
+
+model Collector {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  name           String
+  dayOfWeek      Int?
+  telegramUserId String?
+  active         Boolean  @default(true)
+
+  entries         Entry[]  @relation("CollectorEntries")
+  creditedEntries Entry[]  @relation("CreditedBy")
+  payments        Payment[]
+
+  @@index([telegramUserId])
+  @@index([active])
+}
+
+model Period {
+  id            String       @id @default(cuid())
+  createdAt     DateTime     @default(now())
+  startDate     String
+  endDate       String
+  storeTotalRub Float
+  rate          Float
+  status        PeriodStatus
+  entries       Entry[]
+  payments      Payment[]
+
+  @@index([status])
+  @@index([startDate])
+}
+
+model Entry {
+  id                    String      @id @default(cuid())
+  createdAt             DateTime    @default(now())
+  periodId              String
+  period                Period      @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  collectorId           String
+  collector             Collector   @relation("CollectorEntries", fields: [collectorId], references: [id], onDelete: Restrict)
+  date                  String
+  kg                    Float?
+  source                EntrySource
+  status                EntryStatus
+  telegramFileId        String?
+  creditedByCollectorId String?
+  creditedBy            Collector?  @relation("CreditedBy", fields: [creditedByCollectorId], references: [id], onDelete: SetNull)
+  note                  String?
+  confirmedAt           DateTime?
+
+  @@index([periodId, date])
+  @@index([periodId, status])
+  @@index([collectorId])
+}
+
+model Payment {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  periodId    String
+  period      Period    @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  collectorId String
+  collector   Collector @relation(fields: [collectorId], references: [id], onDelete: Restrict)
+  amountRub   Float
+  paidAt      DateTime?
+
+  @@unique([periodId, collectorId])
+  @@index([periodId, collectorId])
+}
+
+model Settings {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  key          String   @unique @default("default")
+  bank         String
+  payTo        String
+  deadlineText String
+  windowStart  Int
+  windowEnd    Int
+  groupChatId  String?
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  token     String   @unique
+  expiresAt DateTime
+}

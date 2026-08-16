@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Админка — превью</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#fff;color:#111}
+#root{min-height:100vh}
+
+/* ---- вход ---- */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f7}
+.login-card{width:100%;max-width:340px;background:#fff;border-radius:16px;padding:28px 26px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.login-card h1{font-size:18px;margin:0 0 4px}
+.login-card .sub{font-size:13px;color:#8b8b8b;margin-bottom:20px}
+.login-card .hint{font-size:12px;color:#a8a8a8;margin-top:10px;text-align:center}
+
+/* ---- каркас ---- */
+.shell{display:flex;min-height:100vh}
+.sidebar{width:232px;flex-shrink:0;background:#fafafa;border-right:1px solid #e9e9e9;padding:20px 14px;display:flex;flex-direction:column}
+.brand{padding:6px 10px 18px}
+.brand .t{font-size:15px;font-weight:600}
+.brand .s{font-size:12px;color:#8b8b8b;margin-top:2px}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;font-size:13.5px;color:#444;cursor:pointer}
+.nav-item svg{flex-shrink:0;color:#8b8b8b}
+.nav-item:hover{background:#f0f0f0}
+.nav-item.active{background:#eaf2fc;color:#1a5599;font-weight:600}
+.nav-item.active svg{color:#1a5599}
+.sidebar-foot{margin-top:auto;padding:10px 12px;font-size:12px;color:#a8a8a8;border-top:1px solid #ececec;padding-top:14px}
+.sidebar-foot .logout{color:#2481cc;cursor:pointer;font-weight:600;margin-top:6px;display:inline-block}
+
+.main{flex:1;min-width:0;padding:26px 32px;max-width:900px}
+.mobile-bar{display:none}
+
+.period-pill{display:inline-flex;align-items:center;gap:8px;background:#f5f5f7;border-radius:20px;padding:7px 14px;font-size:13px;font-weight:600;margin-bottom:20px;cursor:pointer}
+.period-pill .arrow{color:#8b8b8b;font-weight:400}
+
+h1.page-title{font-size:19px;margin:0 0 4px;font-weight:600}
+.page-sub{font-size:13px;color:#8b8b8b;margin-bottom:20px}
+
+.card{background:#f5f5f7;border-radius:16px;padding:18px;margin-bottom:14px}
+.card h2{font-size:14px;margin:0 0 4px;font-weight:600}
+.card .h2-sub{font-size:12px;color:#8b8b8b;margin-bottom:12px}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px}
+.badge.ok{background:#e6f6ec;color:#1e7e45}
+.badge.warn{background:#fff3d6;color:#8a6100}
+.badge.info{background:#eaf2fc;color:#1a5599}
+.progress{display:flex;height:8px;border-radius:4px;background:#e2e2e5;overflow:hidden;margin:12px 0 6px}
+.progress .fill{background:#2481cc;height:100%}
+.stat-row{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-top:2px}
+.stat-row .val{font-weight:600;font-size:15px}
+
+.review-item{border-top:1px solid #e6e6e9;padding:12px 0}
+.review-item:first-child{border-top:none}
+.review-top{display:flex;gap:10px;align-items:center}
+.photo-ph{width:44px;height:44px;border-radius:10px;background:#e2e2e5;display:flex;align-items:center;justify-content:center;color:#9b9b9b;flex-shrink:0}
+.review-info{flex:1;min-width:0}
+.review-info .name{font-size:13.5px;font-weight:600}
+.review-info .meta{font-size:12px;color:#8b8b8b;margin-top:1px}
+.review-actions{display:flex;gap:8px;margin-top:9px;align-items:center}
+.review-actions input{width:84px;padding:7px 8px;border-radius:8px;border:1px solid #e2e2e5;font-size:13px}
+.btn-confirm{background:#2481cc;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+
+.gap-item{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #e6e6e9;font-size:13px}
+.gap-item:first-child{border-top:none}
+.gap-item .d{color:#8b8b8b;font-size:12px}
+.empty{font-size:13px;color:#8b8b8b;text-align:center;padding:10px 0}
+
+.btn-primary{background:#2481cc;color:#fff;border:none;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer}
+.btn-secondary{background:#fff;color:#2481cc;border:1px solid #d8dfe6;border-radius:10px;padding:10px 16px;font-size:13.5px;font-weight:600;cursor:pointer}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#8b8b8b;font-weight:500;font-size:11.5px;padding:0 8px 8px 0}
+td{padding:8px 8px 8px 0;border-top:1px solid #e6e6e9}
+td input,td select{width:100%;border:none;background:transparent;font-size:13px;color:#111;padding:2px 0}
+.toggle-pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;border:none;cursor:pointer}
+.toggle-pill.on{background:#e6f6ec;color:#1e7e45}
+.toggle-pill.off{background:#f1f0ec;color:#8b8b8b}
+
+label{font-size:12px;color:#8b8b8b;display:block;margin-bottom:5px}
+.field{margin-bottom:14px}
+input,select,textarea{width:100%;padding:10px 11px;border-radius:10px;border:1px solid #e2e2e5;background:#fff;color:#111;font-size:14px;font-family:inherit}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:420px}
+textarea{min-height:170px;font-size:12.5px;line-height:1.5}
+.msg-actions{display:flex;gap:8px;margin-top:8px}
+.toast{background:#e6f6ec;color:#1e7e45;border-radius:10px;padding:9px 12px;font-size:13px;margin-top:8px;display:inline-block}
+
+/* ---- календарь ---- */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.cal-dow{font-size:11px;color:#8b8b8b;text-align:center;padding-bottom:4px}
+.cal-cell{border-radius:10px;padding:8px 6px;min-height:64px;background:#fff;border:1px solid #e9e9e9}
+.cal-cell.filled{background:#e6f6ec;border-color:#cdeedb}
+.cal-cell.review{background:#fff3d6;border-color:#f3e2ad}
+.cal-cell.gap{background:#fdeaea;border-color:#f3caca}
+.cal-cell .num{font-size:12px;font-weight:600;color:#555}
+.cal-cell .who{font-size:11px;color:#666;margin-top:6px;line-height:1.3}
+.cal-legend{display:flex;gap:16px;margin-top:14px;font-size:12px;color:#666}
+.cal-legend .dot{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
+
+.hist-note{font-size:11px;color:#8b8b8b;font-style:italic;margin-top:2px}
+.hist-credit{font-size:11px;color:#2f4f8f;margin-top:2px}
+
+@media (max-width: 780px){
+  .sidebar{position:fixed;top:0;left:0;height:100vh;z-index:20;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 24px rgba(0,0,0,.15)}
+  .sidebar.open{transform:translateX(0)}
+  .mobile-bar{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #ececec}
+  .mobile-bar .burger{cursor:pointer;font-size:20px}
+  .main{padding:18px}
+  .shell{flex-direction:column}
+  .grid2{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const ICON = {
+  home: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9h12v-9"/></svg>',
+  calendar: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/></svg>',
+  users: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="9" r="2.3"/><path d="M15.5 14c2.6.2 4.5 2 4.5 5"/></svg>',
+  history: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.5V12l3.2 2"/></svg>',
+  settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="2.8"/><path d="M19 12a7 7 0 0 0-.13-1.34l2-1.4-1.5-2.6-2.3.9a7 7 0 0 0-2.3-1.34L14.4 4h-3l-.37 2.22a7 7 0 0 0-2.3 1.34l-2.3-.9-1.5 2.6 2 1.4A7 7 0 0 0 6.8 12c0 .46.05.9.13 1.34l-2 1.4 1.5 2.6 2.3-.9c.68.58 1.46 1.04 2.3 1.34L11.4 20h3l.37-2.22c.84-.3 1.62-.76 2.3-1.34l2.3.9 1.5-2.6-2-1.4c.08-.44.13-.88.13-1.34Z"/></svg>',
+  photo: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></svg>'
+};
+
+const DAY_NAMES = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+const NAV = [
+  { id: 'home', label: 'Главная', icon: ICON.home },
+  { id: 'calendar', label: 'Календарь', icon: ICON.calendar },
+  { id: 'participants', label: 'Участники', icon: ICON.users },
+  { id: 'history', label: 'История', icon: ICON.history },
+  { id: 'settings', label: 'Настройки', icon: ICON.settings }
+];
+
+const state = {
+  loggedIn: false,
+  section: 'home',
+  sidebarOpen: false,
+  period: { weekLabel: '32–33 неделя', startISO: '2026-08-03', endISO: '2026-08-16', storeTotalRub: 8000, rate: 20 },
+  collectors: [
+    { name: 'Пыльдмаа Саша', dayOfWeek: null, tgId: '', active: true },
+    { name: 'Гришин Лёша', dayOfWeek: 2, tgId: '', active: true },
+    { name: 'Разводовские и Оля', dayOfWeek: 3, tgId: '', active: true },
+    { name: 'Шкирские', dayOfWeek: null, tgId: '', active: true },
+    { name: 'Стрыгины', dayOfWeek: null, tgId: '', active: true },
+    { name: 'Топорова Лена', dayOfWeek: 6, tgId: '555111222', active: true },
+    { name: 'Чендевы', dayOfWeek: null, tgId: '', active: true },
+    { name: 'Каштанова Таня', dayOfWeek: null, tgId: '', active: true }
+  ],
+  entries: [
+    { collector: 'Топорова Лена', date: '2026-08-01', kg: 26, source: 'invoice', note: '' },
+    { collector: 'Топорова Лена', date: '2026-08-08', kg: 30, source: 'manual', note: 'без накладной, всё как обычно' },
+    { collector: 'Гришин Лёша', date: '2026-08-04', kg: 41, source: 'invoice', note: '' },
+    { collector: 'Разводовские и Оля', date: '2026-08-05', kg: 45, source: 'invoice', note: '' },
+    { collector: 'Чендевы', date: '2026-08-06', kg: 20, source: 'manual', creditedBy: 'Топорова Лена', note: '' }
+  ],
+  pendingReview: [
+    { id: 1, collector: 'Топорова Лена', date: '2026-08-09', kg: null },
+    { id: 2, collector: 'Каштанова Таня', date: '2026-08-07', kg: 18 }
+  ],
+  gaps: [
+    { collector: 'Гришин Лёша', date: '2026-08-11' },
+    { collector: 'Разводовские и Оля', date: '2026-08-12' }
+  ],
+  settings: { rate: 20, bank: 'Demo Bank', card: '00000000000', deadline: 'до 16:00 воскресенья', windowStart: 17, windowEnd: 21, groupChatId: '', adminPassword: '••••••••' }
+};
+
+function fmtShort(dateStr){ const [y,m,d] = dateStr.split('-'); return `${d}.${m}`; }
+function dayName(dateStr){ return DAY_NAMES[new Date(dateStr + 'T00:00:00').getDay()]; }
+function initials(name){ return name.split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase(); }
+
+// ================= ВХОД =================
+function renderLogin(){
+  document.getElementById('root').innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <h1>Вход в админку</h1>
+        <div class="sub">Пятёрка на бульваре</div>
+        <div class="field"><label>Пароль</label><input type="password" id="loginPass" placeholder="Пароль администратора"></div>
+        <button class="btn-primary" style="width:100%" onclick="doLogin()">Войти</button>
+        <div class="hint">Это превью — подойдёт любой пароль. Работает отдельно от Telegram-бота, отдельный вход по паролю.</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+}
+function doLogin(){ state.loggedIn = true; render(); }
+function logout(){ state.loggedIn = false; render(); }
+
+// ================= КАРКАС =================
+function render(){
+  if (!state.loggedIn) { renderLogin(); return; }
+
+  document.getElementById('root').innerHTML = `
+    <div class="shell">
+      <div class="mobile-bar">
+        <span class="burger" onclick="toggleSidebar()">☰</span>
+        <strong>Админка</strong>
+      </div>
+      <div class="sidebar ${state.sidebarOpen ? 'open' : ''}" id="sidebar">
+        <div class="brand">
+          <div class="t">Админка сборщиков</div>
+          <div class="s">Пятёрка на бульваре</div>
+        </div>
+        <div class="nav">
+          ${NAV.map(n => `
+            <div class="nav-item ${state.section===n.id?'active':''}" onclick="setSection('${n.id}')">
+              ${n.icon}<span>${n.label}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="sidebar-foot">
+          Работает отдельно от бота — отдельный вход по паролю.
+          <div class="logout" onclick="logout()">Выйти</div>
+        </div>
+      </div>
+      <div class="main">
+        <div class="period-pill" onclick="alert('В реальном апе — переключение и создание периодов')">${state.period.weekLabel} · ${fmtShort(state.period.startISO)}–${fmtShort(state.period.endISO)} <span class="arrow">▾</span></div>
+        <div id="content"></div>
+      </div>
+    </div>
+  `;
+  renderSection();
+}
+
+function toggleSidebar(){ state.sidebarOpen = !state.sidebarOpen; document.getElementById('sidebar').classList.toggle('open'); }
+function setSection(id){ state.section = id; state.sidebarOpen = false; render(); }
+
+function renderSection(){
+  const el = document.getElementById('content');
+  if (state.section === 'home') el.innerHTML = tplHome();
+  else if (state.section === 'calendar') el.innerHTML = tplCalendar();
+  else if (state.section === 'participants') el.innerHTML = tplParticipants();
+  else if (state.section === 'history') el.innerHTML = tplHistory();
+  else if (state.section === 'settings') el.innerHTML = tplSettings();
+  if (state.section === 'participants') bindParticipants();
+}
+
+// ================= ГЛАВНАЯ =================
+function tplHome(){
+  const confirmedKg = state.entries.reduce((s,e)=>s+e.kg,0);
+  const expectedKg = state.period.storeTotalRub / state.period.rate;
+  const pct = Math.min(100, Math.round(confirmedKg / expectedKg * 100));
+  return `
+    <h1 class="page-title">Главная</h1>
+    <div class="page-sub">Что требует внимания прямо сейчас</div>
+
+    <div class="card">
+      <h2>Сколько собрано</h2>
+      <div class="h2-sub">По подтверждённым записям, сравниваем с суммой от магазина</div>
+      <div class="stat-row"><span>Собрано</span><span class="val">${confirmedKg} кг · ${confirmedKg * state.period.rate} ₽</span></div>
+      <div class="stat-row"><span>Ожидается по сумме магазина</span><span class="val">${expectedKg} кг · ${state.period.storeTotalRub} ₽</span></div>
+      <div class="progress"><div class="fill" style="width:${pct}%"></div></div>
+      <div class="h2-sub" style="margin-bottom:0">${pct}% от ожидаемого — период ещё открыт, донабирается</div>
+    </div>
+
+    <div class="card">
+      <h2>Накладные на проверке <span class="badge warn">${state.pendingReview.length}</span></h2>
+      <div class="h2-sub">Сборщики прислали фото — подтверди кг, чтобы они попали в сумму</div>
+      <div id="reviewList">${renderReviewList()}</div>
+    </div>
+
+    <div class="card">
+      <h2>Пропуски <span class="badge info">${state.gaps.length}</span></h2>
+      <div class="h2-sub">Дни по графику без единой записи</div>
+      ${state.gaps.length ? state.gaps.map(g => `
+        <div class="gap-item"><span>${g.collector}</span><span class="d">${fmtShort(g.date)} · ${dayName(g.date)}</span></div>
+      `).join('') : '<div class="empty">Пропусков нет</div>'}
+    </div>
+
+    <button class="btn-primary" onclick="toggleMessage()">Собрать сообщение для Telegram</button>
+    <div id="msgArea"></div>
+  `;
+}
+
+function renderReviewList(){
+  if (!state.pendingReview.length) return '<div class="empty">Всё проверено ✓</div>';
+  return state.pendingReview.map(r => `
+    <div class="review-item">
+      <div class="review-top">
+        <div class="photo-ph">${ICON.photo}</div>
+        <div class="review-info">
+          <div class="name">${r.collector}</div>
+          <div class="meta">${fmtShort(r.date)} · ${dayName(r.date)}</div>
+        </div>
+      </div>
+      <div class="review-actions">
+        <input type="number" id="rkg-${r.id}" placeholder="кг" value="${r.kg ?? ''}">
+        <button class="btn-confirm" onclick="confirmReview(${r.id})">Подтвердить</button>
+      </div>
+    </div>
+  `).join('');
+}
+function confirmReview(id){
+  const item = state.pendingReview.find(r => r.id === id);
+  if (!item) return;
+  const input = document.getElementById(`rkg-${id}`);
+  const kg = Number(input.value);
+  if (!kg || kg <= 0) { input.style.borderColor = '#d64545'; return; }
+  state.entries.push({ collector: item.collector, date: item.date, kg, source: 'invoice', note: '' });
+  state.pendingReview = state.pendingReview.filter(r => r.id !== id);
+  renderSection();
+}
+function toggleMessage(){
+  const area = document.getElementById('msgArea');
+  if (area.dataset.open === '1') { area.innerHTML = ''; area.dataset.open = '0'; return; }
+  area.dataset.open = '1';
+  const totals = {};
+  state.entries.forEach(e => { totals[e.collector] = (totals[e.collector]||0) + e.kg; });
+  const totalKg = Object.values(totals).reduce((a,b)=>a+b,0);
+  const totalRub = totalKg * state.period.rate;
+  let lines = ['⚠️ ПОДСЧИТАНО ЗА 2 НЕДЕЛИ', '', `💳 Оплата с ${fmtShort(state.period.startISO)} по ${fmtShort(state.period.endISO)}. ${totalRub} руб. = общий вес: ${totalKg} кг`, ''];
+  Object.entries(totals).forEach(([name, kg]) => lines.push(`▫️ ${name} - ${kg}*${state.period.rate} = ${kg*state.period.rate} руб`));
+  lines.push('', `Переводить мне на карту ${state.settings.bank}🏦 (${state.settings.card}) ${state.settings.deadline}`, 'ОГРОМНАЯ ПРОСЬБА ПЕРЕЧИСЛИТЬ ВСЕ ВОВРЕМЯ И ОТМЕТЬТЕ ТЕ КТО ПЕРЕВЕЛ ТУТ В ЧАТЕ');
+  area.innerHTML = `
+    <div class="card" style="margin-top:12px;max-width:520px">
+      <h2>Сообщение</h2>
+      <textarea readonly id="msgText">${lines.join('\n')}</textarea>
+      <div class="msg-actions">
+        <button class="btn-secondary" onclick="copyMsg()">Скопировать</button>
+        <button class="btn-secondary" onclick="sendMsg()">Отправить в группу</button>
+      </div>
+      <div id="sendToast"></div>
+    </div>`;
+}
+function copyMsg(){ navigator.clipboard.writeText(document.getElementById('msgText').value); }
+function sendMsg(){ document.getElementById('sendToast').innerHTML = '<div class="toast">Отправлено ✓</div>'; }
+
+// ================= КАЛЕНДАРЬ =================
+function buildCalendarDays(){
+  const days = [];
+  const d = new Date(state.period.startISO + 'T00:00:00');
+  const end = new Date(state.period.endISO + 'T00:00:00');
+  while (d <= end) {
+    const iso = d.toISOString().slice(0,10);
+    const dow = d.getDay();
+    const scheduled = state.collectors.find(c => c.active && c.dayOfWeek === dow);
+    const dayEntries = state.entries.filter(e => e.date === iso);
+    const dayReview = state.pendingReview.filter(r => r.date === iso);
+    let status = 'empty', who = '';
+    if (dayEntries.length) { status = 'filled'; who = dayEntries.map(e => initials(e.collector)).join(', '); }
+    else if (dayReview.length) { status = 'review'; who = dayReview.map(r => initials(r.collector)).join(', '); }
+    else if (scheduled) { status = 'gap'; who = initials(scheduled.name); }
+    days.push({ iso, num: d.getDate(), status, who });
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+function tplCalendar(){
+  const days = buildCalendarDays();
+  const dows = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+  return `
+    <h1 class="page-title">Календарь</h1>
+    <div class="page-sub">Кто по графику, где пропуск, где ждёт проверки — на весь период сразу</div>
+    <div class="card">
+      <div class="cal-grid">
+        ${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}
+        ${days.map(d => `
+          <div class="cal-cell ${d.status}">
+            <div class="num">${d.num}</div>
+            ${d.who ? `<div class="who">${d.who}</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+      <div class="cal-legend">
+        <span><span class="dot" style="background:#a8dcb9"></span>есть запись</span>
+        <span><span class="dot" style="background:#f3d78a"></span>на проверке</span>
+        <span><span class="dot" style="background:#eeb3b3"></span>пропуск</span>
+      </div>
+    </div>
+  `;
+}
+
+// ================= УЧАСТНИКИ =================
+function tplParticipants(){
+  return `
+    <h1 class="page-title">Участники</h1>
+    <div class="page-sub">День недели нужен, чтобы приложение само видело пропуски</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Имя</th><th>День</th><th>Telegram ID</th><th></th></tr></thead>
+        <tbody>
+          ${state.collectors.map((c,i) => `
+            <tr>
+              <td><input value="${c.name}" data-i="${i}" data-f="name"></td>
+              <td>
+                <select data-i="${i}" data-f="dayOfWeek">
+                  <option value="" ${c.dayOfWeek===null?'selected':''}>—</option>
+                  ${DAY_NAMES.map((d,idx)=>`<option value="${idx}" ${c.dayOfWeek===idx?'selected':''}>${d}</option>`).join('')}
+                </select>
+              </td>
+              <td><input value="${c.tgId}" data-i="${i}" data-f="tgId" placeholder="не привязан"></td>
+              <td><button class="toggle-pill ${c.active?'on':'off'}" data-i="${i}" data-act="toggle">${c.active?'активен':'скрыт'}</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <button class="btn-secondary" onclick="alert('Форма добавления: имя + день недели')">+ Добавить участника</button>
+  `;
+}
+function bindParticipants(){
+  document.querySelectorAll('[data-f]').forEach(el => {
+    el.addEventListener('change', () => {
+      const i = Number(el.dataset.i), f = el.dataset.f;
+      state.collectors[i][f] = f === 'dayOfWeek' ? (el.value === '' ? null : Number(el.value)) : el.value;
+    });
+  });
+  document.querySelectorAll('[data-act="toggle"]').forEach(btn => {
+    btn.onclick = () => { state.collectors[Number(btn.dataset.i)].active = !state.collectors[Number(btn.dataset.i)].active; renderSection(); };
+  });
+}
+
+// ================= ИСТОРИЯ =================
+function tplHistory(){
+  const rows = state.entries.slice().sort((a,b) => b.date.localeCompare(a.date));
+  return `
+    <h1 class="page-title">История</h1>
+    <div class="page-sub">Все подтверждённые записи текущего периода</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Дата</th><th>Участник</th><th>Кг</th><th>Источник</th></tr></thead>
+        <tbody>
+          ${rows.map(e => `
+            <tr>
+              <td>${fmtShort(e.date)} <span style="color:#8b8b8b">· ${dayName(e.date)}</span></td>
+              <td>${e.collector}
+                ${e.creditedBy ? `<div class="hist-credit">засчитано от ${e.creditedBy}</div>` : ''}
+                ${e.note ? `<div class="hist-note">«${e.note}»</div>` : ''}
+              </td>
+              <td>${e.kg} кг</td>
+              <td><span class="badge ${e.source === 'invoice' ? 'ok' : 'info'}">${e.source === 'invoice' ? 'накладная' : 'вручную'}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ================= НАСТРОЙКИ =================
+function tplSettings(){
+  const s = state.settings;
+  return `
+    <h1 class="page-title">Настройки</h1>
+    <div class="page-sub">Ставка, реквизиты, окно приёма и доступ</div>
+
+    <div class="card">
+      <h2>Выплаты</h2>
+      <div class="field" style="max-width:200px"><label>Ставка, ₽/кг</label><input id="sRate" type="number" value="${s.rate}"></div>
+      <div class="grid2">
+        <div class="field"><label>Банк</label><input id="sBank" value="${s.bank}"></div>
+        <div class="field"><label>Номер карты</label><input id="sCard" value="${s.card}"></div>
+      </div>
+      <div class="field" style="max-width:420px"><label>Текст дедлайна</label><input id="sDeadline" value="${s.deadline}"></div>
+    </div>
+
+    <div class="card">
+      <h2>Окно приёма продуктов</h2>
+      <div class="h2-sub">Показывается участнику таймером в его день</div>
+      <div class="grid2">
+        <div class="field"><label>Начало</label><input id="sWinStart" type="number" min="0" max="23" value="${s.windowStart}"></div>
+        <div class="field"><label>Конец</label><input id="sWinEnd" type="number" min="0" max="23" value="${s.windowEnd}"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Telegram-бот</h2>
+      <div class="h2-sub">Бот отдельно шлёт уведомления и открывает мини-апп участникам — сама админка от него не зависит</div>
+      <div class="field" style="max-width:420px"><label>Chat ID группы для авто-отправки (необязательно)</label><input id="sGroupChat" value="${s.groupChatId}"></div>
+    </div>
+
+    <div class="card">
+      <h2>Доступ в админку</h2>
+      <div class="field" style="max-width:280px"><label>Пароль</label><input id="sPassword" type="password" value="${s.adminPassword}"></div>
+    </div>
+
+    <button class="btn-primary" onclick="saveSettings()">Сохранить</button>
+    <div id="settingsToast"></div>
+  `;
+}
+function saveSettings(){
+  const s = state.settings;
+  s.rate = Number(document.getElementById('sRate').value);
+  s.bank = document.getElementById('sBank').value;
+  s.card = document.getElementById('sCard').value;
+  s.deadline = document.getElementById('sDeadline').value;
+  s.windowStart = Number(document.getElementById('sWinStart').value);
+  s.windowEnd = Number(document.getElementById('sWinEnd').value);
+  s.groupChatId = document.getElementById('sGroupChat').value;
+  document.getElementById('settingsToast').innerHTML = '<div class="toast">Сохранено ✓</div>';
+}
+
+render();
+</script>
+</body>
+</html>
