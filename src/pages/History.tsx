@@ -129,10 +129,22 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
                       ) : null}
                       {row.note ? <div className="hist-note">«{row.note}»</div> : null}
                     </td>
-                    <td>{row.kg} кг</td>
+                    <td>{row.status === "skipped" ? "—" : `${row.kg} кг`}</td>
                     <td>
-                      <span className={`badge ${row.source === "invoice" ? "ok" : "info"}`}>
-                        {row.source === "invoice" ? "накладная" : "вручную"}
+                      <span
+                        className={`badge ${
+                          row.status === "skipped"
+                            ? "warn"
+                            : row.source === "invoice"
+                              ? "ok"
+                              : "info"
+                        }`}
+                      >
+                        {row.status === "skipped"
+                          ? "не брал"
+                          : row.source === "invoice"
+                            ? "накладная"
+                            : "вручную"}
                       </span>
                     </td>
                   </tr>

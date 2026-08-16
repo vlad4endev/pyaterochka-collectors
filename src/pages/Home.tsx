@@ -131,12 +131,14 @@ function MissingKgEditor({
   busyId,
   onDraft,
   onSave,
+  onSkip,
 }: {
   people: MissingReport[];
   kgDraft: Record<string, string>;
   busyId: string | null;
   onDraft: (key: string, value: string) => void;
   onSave: (collectorId: string, date: string) => void;
+  onSkip: (collectorId: string, date: string) => void;
 }) {
   if (people.length === 0) {
     return null;
@@ -169,6 +171,14 @@ function MissingKgEditor({
                     onClick={() => onSave(person.collectorId, date)}
                   >
                     {busyId === `kg-${key}` ? "…" : "Внести"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-quiet"
+                    disabled={busyId === `skip-${key}`}
+                    onClick={() => onSkip(person.collectorId, date)}
+                  >
+                    {busyId === `skip-${key}` ? "…" : "Не брал"}
                   </button>
                 </div>
               );
@@ -316,6 +326,32 @@ export function HomePage({ periodId, onPeriod }: Props) {
         await refreshLastWeekPreview();
       }
       setToast("Кг внесены");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onSkip(targetPeriodId: string, collectorId: string, date: string) {
+    if (!token) {
+      return;
+    }
+    const key = `${collectorId}:${date}`;
+    setError(null);
+    setToast(null);
+    setBusyId(`skip-${key}`);
+    try {
+      await api.entries.skip(token, {
+        periodId: targetPeriodId,
+        collectorId,
+        date,
+      });
+      refreshData();
+      if (calcOpen) {
+        await refreshLastWeekPreview();
+      }
+      setToast("Отметили: не брал");
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -589,7 +625,7 @@ export function HomePage({ periodId, onPeriod }: Props) {
             <h2>Пропуски</h2>
             <span className={`badge ${gapCount ? "info" : "ok"}`}>{gapCount}</span>
           </div>
-          <p className="h2-sub">Дни по графику без записи. Можно внести кг вручную или напомнить.</p>
+          <p className="h2-sub">Дни по графику без записи. Можно внести кг, отметить «Не брал» или напомнить.</p>
           {dashboard.gaps.length === 0 ? (
             <div className="empty">Пропусков нет</div>
           ) : (
@@ -632,6 +668,14 @@ export function HomePage({ periodId, onPeriod }: Props) {
                               onClick={() => void onAdminKg(periodId, group.collectorId, date)}
                             >
                               {busyId === `kg-${key}` ? "…" : "Внести"}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-quiet"
+                              disabled={busyId === `skip-${key}`}
+                              onClick={() => void onSkip(periodId, group.collectorId, date)}
+                            >
+                              {busyId === `skip-${key}` ? "…" : "Не брал"}
                             </button>
                           </div>
                         );
@@ -689,6 +733,7 @@ export function HomePage({ periodId, onPeriod }: Props) {
               busyId={busyId}
               onDraft={(key, value) => setKgDraft((prev) => ({ ...prev, [key]: value }))}
               onSave={(collectorId, date) => void onAdminKg(lastWeek.periodId, collectorId, date)}
+              onSkip={(collectorId, date) => void onSkip(lastWeek.periodId, collectorId, date)}
             />
           </>
         ) : null}
@@ -824,6 +869,9 @@ export function HomePage({ periodId, onPeriod }: Props) {
                   onSave={(collectorId, date) =>
                     void onAdminKg(calcPreview.periodId, collectorId, date)
                   }
+                  onSkip={(collectorId, date) =>
+                    void onSkip(calcPreview.periodId, collectorId, date)
+                  }
                 />
               </>
             ) : null}
@@ -899,6 +947,9 @@ export function HomePage({ periodId, onPeriod }: Props) {
                       onDraft={(key, value) => setKgDraft((prev) => ({ ...prev, [key]: value }))}
                       onSave={(collectorId, date) =>
                         void onAdminKg(calcPreview.periodId, collectorId, date)
+                      }
+                      onSkip={(collectorId, date) =>
+                        void onSkip(calcPreview.periodId, collectorId, date)
                       }
                     />
                   ) : (

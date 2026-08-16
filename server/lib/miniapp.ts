@@ -1,4 +1,4 @@
-import type { Collector, PrismaClient } from "@prisma/client";
+import type { Collector, Period, PrismaClient } from "@prisma/client";
 import {
   clockInTimeZone,
   eachDateInclusive,
@@ -12,6 +12,7 @@ import {
   getSettings,
   requireCollector,
   requireOpenPeriod,
+  requireUnsettledPeriod,
   KG_RATE_RUB,
   entryPayeeId,
 } from "./domain";
@@ -22,7 +23,7 @@ export type MiniEntry = {
   date: string;
   kg?: number;
   source: "invoice" | "manual";
-  status: "pending" | "confirmed" | "rejected";
+  status: "pending" | "confirmed" | "rejected" | "skipped";
   creditedByName?: string;
   creditedForName?: string;
   hasPhoto: boolean;
@@ -265,7 +266,10 @@ export async function getMiniHome(
       }
       const has = myEntries.some(
         (entry) =>
-          entry.date === date && (entry.status === "confirmed" || entry.status === "pending"),
+          entry.date === date &&
+          (entry.status === "confirmed" ||
+            entry.status === "pending" ||
+            entry.status === "skipped"),
       );
       if (!has) {
         gaps.push({ date });
@@ -382,6 +386,68 @@ export async function submitCollectorReport(
     },
   });
   return row.id;
+}
+
+export async function skipCollectorDay(
+  db: PrismaClient,
+  period: Period,
+  collector: Collector,
+  dateRaw: string,
+): Promise<string> {
+  const today = clockInTimeZone(STORE_TIME_ZONE, Date.now()).date;
+  const date = assertDateOpenForSubmit(dateRaw, period.startDate, period.endDate, today);
+  if (collector.dayOfWeek !== weekdayFromIso(date)) {
+    throw new HttpError("Collector is not scheduled on this date");
+  }
+  const existing = await db.entry.findMany({
+    where: { periodId: period.id, collectorId: collector.id, date },
+    take: 20,
+  });
+  const skipped = existing.find((entry) => entry.status === "skipped");
+  if (skipped) {
+    return skipped.id;
+  }
+  if (existing.some((entry) => entry.status === "pending")) {
+    throw new HttpError("Entry is pending review");
+  }
+  if (existing.some((entry) => entry.status === "confirmed")) {
+    throw new HttpError("Entry already has kilograms");
+  }
+  const row = await db.entry.create({
+    data: {
+      periodId: period.id,
+      collectorId: collector.id,
+      date,
+      source: "manual",
+      status: "skipped",
+      note: "Не брал",
+    },
+  });
+  return row.id;
+}
+
+export async function skipOwnScheduledDay(
+  db: PrismaClient,
+  collector: Collector,
+  date: string,
+): Promise<string> {
+  const period = await getOpenPeriod(db);
+  if (!period) {
+    throw new HttpError("Period not found", 404);
+  }
+  await requireOpenPeriod(db, period.id);
+  return await skipCollectorDay(db, period, collector, date);
+}
+
+export async function skipCollectorDayInPeriod(
+  db: PrismaClient,
+  periodId: string,
+  collectorId: string,
+  date: string,
+): Promise<string> {
+  const period = await requireUnsettledPeriod(db, periodId);
+  const collector = await requireCollector(db, collectorId);
+  return await skipCollectorDay(db, period, collector, date);
 }
 
 export async function createInvoiceFromPhoto(

@@ -41,6 +41,8 @@ import {
   createCollectorManualEntry,
   getMiniHome,
   requireActiveCollector,
+  skipCollectorDayInPeriod,
+  skipOwnScheduledDay,
   submitCollectorReport,
 } from "./lib/miniapp";
 import { restartBot } from "./bot";
@@ -358,6 +360,21 @@ authed.post("/entries/manual", async (c) => {
   return c.json(row.id);
 });
 
+authed.post("/entries/skip", async (c) => {
+  const body = await c.req.json<{
+    periodId?: string;
+    collectorId?: string;
+    date?: string;
+  }>();
+  const id = await skipCollectorDayInPeriod(
+    db,
+    body.periodId ?? "",
+    body.collectorId ?? "",
+    body.date ?? "",
+  );
+  return c.json(id);
+});
+
 authed.post("/entries/credit", async (c) => {
   const body = await c.req.json<{
     periodId?: string;
@@ -400,12 +417,12 @@ authed.get("/history", async (c) => {
     throw new HttpError("periodId is required");
   }
   const rows = await db.entry.findMany({
-    where: { periodId, status: "confirmed" },
+    where: { periodId, status: { in: ["confirmed", "skipped"] } },
     take: 500,
   });
   const items = [];
   for (const row of rows) {
-    if (row.kg === null) {
+    if (row.status === "confirmed" && row.kg === null) {
       continue;
     }
     const collector = await db.collector.findUnique({ where: { id: row.collectorId } });
@@ -417,6 +434,7 @@ authed.get("/history", async (c) => {
       date: row.date,
       kg: row.kg,
       source: row.source,
+      status: row.status,
       collectorId: row.collectorId,
       collectorName: collector?.name ?? "Unknown",
       creditedByCollectorId: row.creditedByCollectorId ?? undefined,
@@ -719,6 +737,13 @@ mini.post("/entries", async (c) => {
     forCollectorId: body.forCollectorId,
     photoRef,
   });
+  return c.json(id);
+});
+
+mini.post("/entries/skip", async (c) => {
+  const collector = requireActiveCollector(c.get("collector"));
+  const body = await c.req.json<{ date?: string }>();
+  const id = await skipOwnScheduledDay(db, collector, body.date ?? "");
   return c.json(id);
 });
 

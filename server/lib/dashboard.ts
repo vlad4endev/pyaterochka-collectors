@@ -43,19 +43,23 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
     const people: Array<{
       collectorId: string;
       name: string;
-      status: "confirmed" | "pending" | "scheduled";
+      status: "confirmed" | "pending" | "scheduled" | "skipped";
     }> = [];
 
     for (const collector of scheduled) {
       const own = dayEntries.filter(
         (entry) =>
           entry.collectorId === collector.id &&
-          (entry.status === "confirmed" || entry.status === "pending"),
+          (entry.status === "confirmed" ||
+            entry.status === "pending" ||
+            entry.status === "skipped"),
       );
       if (own.some((entry) => entry.status === "confirmed")) {
         people.push({ collectorId: collector.id, name: collector.name, status: "confirmed" });
       } else if (own.some((entry) => entry.status === "pending")) {
         people.push({ collectorId: collector.id, name: collector.name, status: "pending" });
+      } else if (own.some((entry) => entry.status === "skipped")) {
+        people.push({ collectorId: collector.id, name: collector.name, status: "skipped" });
       } else {
         people.push({ collectorId: collector.id, name: collector.name, status: "scheduled" });
         gaps.push({
@@ -79,7 +83,12 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
       people.push({
         collectorId: entry.collectorId,
         name: collector?.name ?? "Unknown",
-        status: entry.status === "confirmed" ? "confirmed" : "pending",
+        status:
+          entry.status === "confirmed"
+            ? "confirmed"
+            : entry.status === "skipped"
+              ? "skipped"
+              : "pending",
       });
     }
 
@@ -90,6 +99,8 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
       status = "review";
     } else if (people.some((person) => person.status === "scheduled")) {
       status = "gap";
+    } else if (people.some((person) => person.status === "skipped")) {
+      status = "filled";
     }
 
     calendar.push({ date, weekday, status, people });

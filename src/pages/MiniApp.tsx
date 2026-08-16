@@ -62,12 +62,15 @@ function defaultOpenDate(home: MiniHome, current?: string): string {
   return days.find((day) => day.date === home.today.date)?.date ?? days[0]?.date ?? home.today.date;
 }
 
-function statusCopy(status: "pending" | "confirmed" | "rejected"): string {
+function statusCopy(status: "pending" | "confirmed" | "rejected" | "skipped"): string {
   if (status === "confirmed") {
     return "принято";
   }
   if (status === "pending") {
     return "проверка";
+  }
+  if (status === "skipped") {
+    return "не брал";
   }
   return "отклонено";
 }
@@ -237,6 +240,29 @@ export function MiniAppPage() {
     }
   }
 
+  async function onSkipDay() {
+    if (!initData || !home?.collector) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setToast(null);
+    try {
+      await api.miniapp.skip(initData, date);
+      setKg("");
+      setPhoto(null);
+      setDayOpen(false);
+      haptic("success");
+      setToast("Отметили: не брал");
+      setEpoch((value) => value + 1);
+    } catch (err) {
+      haptic("error");
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copyText(value: string, ok: string) {
     try {
       await navigator.clipboard.writeText(value);
@@ -306,6 +332,14 @@ export function MiniAppPage() {
     : forPerson
       ? `день ${firstName(forPerson.name)} · кг тебе`
       : "кг запишем тебе";
+  const dayClosed = Boolean(
+    home.me?.entries.some(
+      (entry) => entry.date === date && entry.status !== "rejected",
+    ),
+  );
+  const canSkip = Boolean(
+    myDay && periodOpen && date && date <= home.today.date && !dayClosed,
+  );
 
   return (
     <div className="miniapp">
@@ -552,6 +586,16 @@ export function MiniAppPage() {
           </div>
 
           <div className="ma-dock">
+            {canSkip ? (
+              <button
+                type="button"
+                className="ma-skip"
+                disabled={busy}
+                onClick={() => void onSkipDay()}
+              >
+                Не брал
+              </button>
+            ) : null}
             <button className="ma-go" disabled={busy || !canSubmit}>
               {submitLabel()}
             </button>
@@ -571,11 +615,13 @@ export function MiniAppPage() {
                   <span>
                     <strong>
                       {fmtHuman(entry.date)}
-                      {entry.kg !== undefined
-                        ? ` · ${formatKg(entry.kg)} кг`
-                        : entry.hasPhoto
-                          ? " · фото"
-                          : ""}
+                      {entry.status === "skipped"
+                        ? " · не брал"
+                        : entry.kg !== undefined
+                          ? ` · ${formatKg(entry.kg)} кг`
+                          : entry.hasPhoto
+                            ? " · фото"
+                            : ""}
                     </strong>
                     {entry.creditedForName ? (
                       <small>за {firstName(entry.creditedForName)}</small>

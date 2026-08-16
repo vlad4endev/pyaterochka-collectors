@@ -21,6 +21,7 @@ enum EntryStatus {
   pending
   confirmed
   rejected
+  skipped
 }
 
 model Collector {

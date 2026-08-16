@@ -1574,6 +1574,24 @@ button.ma-panel {
   margin: 16px -16px 0;
   padding: 10px 16px calc(8px + var(--tg-safe-area-inset-bottom, 0px));
   background: linear-gradient(180deg, rgba(255, 252, 246, 0) 0%, var(--paper) 28%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ma-skip {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ma-skip:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 
 .ma-go {

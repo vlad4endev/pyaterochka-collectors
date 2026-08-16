@@ -36,8 +36,9 @@ export type PendingEntry = {
 export type HistoryRow = {
   _id: string;
   date: string;
-  kg: number;
+  kg: number | null;
   source: "invoice" | "manual";
+  status?: "confirmed" | "skipped";
   collectorId: string;
   collectorName: string;
   creditedByCollectorId?: string;
@@ -126,7 +127,7 @@ export type MiniEntry = {
   date: string;
   kg?: number;
   source: "invoice" | "manual";
-  status: "pending" | "confirmed" | "rejected";
+  status: "pending" | "confirmed" | "rejected" | "skipped";
   creditedByName?: string;
   creditedForName?: string;
   hasPhoto: boolean;
@@ -210,7 +211,7 @@ export type Dashboard = {
     people: Array<{
       collectorId: string;
       name: string;
-      status: "confirmed" | "pending" | "scheduled";
+      status: "confirmed" | "pending" | "scheduled" | "skipped";
     }>;
   }>;
 };
@@ -275,6 +276,10 @@ export const api = {
       token: string,
       body: { periodId: string; collectorId: string; date: string; kg: number; note?: string },
     ) => apiRequest<string>("/entries/manual", { method: "POST", token, body }),
+    skip: (
+      token: string,
+      body: { periodId: string; collectorId: string; date: string },
+    ) => apiRequest<string>("/entries/skip", { method: "POST", token, body }),
     createCredit: (
       token: string,
       body: {
@@ -417,5 +422,11 @@ export const api = {
         },
       });
     },
+    skip: (initData: string, date: string) =>
+      apiRequest<string>("/miniapp/entries/skip", {
+        method: "POST",
+        telegramInitData: initData,
+        body: { date },
+      }),
   },
 };
