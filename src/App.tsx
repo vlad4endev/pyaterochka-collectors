@@ -96,10 +96,10 @@ function AuthedApp() {
     >
       {!periodId && section !== "settings" && section !== "participants" && section !== "telegram" ? (
         <div className="card">
-          <h2>Нет периода</h2>
-          <div className="h2-sub" style={{ marginBottom: 0 }}>
+          <h2>Нет открытой недели</h2>
+          <p className="h2-sub" style={{ marginBottom: 0 }}>
             Текущая неделя закрыта. Следующая откроется в понедельник.
-          </div>
+          </p>
         </div>
       ) : null}
       {section === "home" && periodId ? (

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { api, type TelegramStatus } from "../lib/api";
 import { errorMessage } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
@@ -147,8 +148,10 @@ export function TelegramPage() {
 
   return (
     <div>
-      <h1 className="page-title">Telegram</h1>
-      <div className="page-sub">Токен бота, мини-приложение и привязка группового чата — без .env</div>
+      <PageHeader
+        title="Telegram"
+        sub="Бот, мини-приложение и групповой чат — без правки .env"
+      />
 
       <form className="card" onSubmit={(event) => void onSaveBot(event)}>
         <h2>Бот</h2>
@@ -209,13 +212,10 @@ export function TelegramPage() {
         </div>
       </form>
 
-      <div className="card">
-        <h2>Напоминания об отчёте</h2>
-        <div className="h2-sub">
-          Каждый день в 10:00 по Москве бот пишет в личку участникам, у которых в открытом периоде
-          есть пропуск по графику за уже прошедшие дни. Сегодняшняя смена не считается пропуском до
-          завтра. Нужны Telegram ID и хотя бы один /start у бота.
-        </div>
+      <div className="note-card">
+        Каждый день в 10:00 по Москве бот пишет в личку тем, у кого в открытой неделе есть пропуск за
+        уже прошедшие дни. Сегодняшняя смена не считается пропуском до завтра. Нужны Telegram ID и хотя
+        бы один /start у бота.
       </div>
 
       <div className="card">

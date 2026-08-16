@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { api } from "../lib/api";
 import { errorMessage } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
@@ -60,14 +61,22 @@ export function SettingsPage() {
 
   return (
     <form onSubmit={(event) => void onSave(event)}>
-      <h1 className="page-title">Настройки</h1>
-      <div className="page-sub">Реквизиты и окно приёма</div>
+      <PageHeader
+        title="Настройки"
+        sub="Реквизиты для выплат и окно приёма продуктов"
+        actions={
+          <button className="btn-primary" type="submit" disabled={busy}>
+            {busy ? "Сохраняем…" : "Сохранить"}
+          </button>
+        }
+      />
 
       <div className="card">
         <h2>Выплаты</h2>
-        <div className="h2-sub">
-          Ставка ₽/кг задаётся при создании периода и не меняется здесь — иначе старые кг пересчитаются задним числом.
-        </div>
+        <p className="h2-sub">
+          Эти данные уходят участникам в счёте. Ставка ₽/кг задаётся у открытой недели в шапке — иначе
+          старые кг пересчитаются задним числом.
+        </p>
         <div className="grid2">
           <div className="field">
             <label htmlFor="sBank">Банк</label>
@@ -78,7 +87,7 @@ export function SettingsPage() {
             <input id="sCard" value={payTo} onChange={(event) => setPayTo(event.target.value)} />
           </div>
         </div>
-        <div className="field" style={{ maxWidth: 420 }}>
+        <div className="field" style={{ maxWidth: 480 }}>
           <label htmlFor="sDeadline">Текст дедлайна</label>
           <input
             id="sDeadline"
@@ -89,11 +98,11 @@ export function SettingsPage() {
       </div>
 
       <div className="card">
-        <h2>Окно приёма продуктов</h2>
-        <div className="h2-sub">Показывается участнику таймером в его день</div>
+        <h2>Окно приёма</h2>
+        <p className="h2-sub">Показывается участнику таймером в его день, в мини-приложении</p>
         <div className="grid2">
           <div className="field">
-            <label htmlFor="sWinStart">Начало</label>
+            <label htmlFor="sWinStart">Начало, часы</label>
             <input
               id="sWinStart"
               type="number"
@@ -104,7 +113,7 @@ export function SettingsPage() {
             />
           </div>
           <div className="field">
-            <label htmlFor="sWinEnd">Конец</label>
+            <label htmlFor="sWinEnd">Конец, часы</label>
             <input
               id="sWinEnd"
               type="number"
@@ -117,23 +126,10 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="card">
-        <h2>Telegram</h2>
-        <div className="h2-sub" style={{ marginBottom: 0 }}>
-          Токен бота и привязка группы настраиваются в разделе Telegram в меню слева, не в .env.
-        </div>
+      <div className="note-card">
+        Бот, мини-приложение и групповой чат — в разделе Telegram. Пароль админки хранится в{" "}
+        <code>.env</code> как <code>ADMIN_PASSWORD</code>, не в базе.
       </div>
-
-      <div className="card">
-        <h2>Доступ в админку</h2>
-        <div className="h2-sub">
-          Пароль хранится в <code>.env</code> как <code>ADMIN_PASSWORD</code>, не в базе.
-        </div>
-      </div>
-
-      <button className="btn-primary" disabled={busy}>
-        Сохранить
-      </button>
       {error ? <div className="err">{error}</div> : null}
       {toast ? <div className="toast">{toast}</div> : null}
     </form>

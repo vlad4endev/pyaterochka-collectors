@@ -26,8 +26,13 @@ export function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={(event) => void onSubmit(event)}>
-        <h1>Вход в админку</h1>
-        <div className="sub">Пятёрка на бульваре</div>
+        <div className="login-brand">
+          <span className="brand-mark">5</span>
+          <div>
+            <h1>Вход в админку</h1>
+            <div className="sub">Пятёрка на бульваре</div>
+          </div>
+        </div>
         <div className="field">
           <label htmlFor="loginPass">Пароль</label>
           <input
@@ -37,15 +42,14 @@ export function LoginPage() {
             placeholder="Пароль администратора"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            autoFocus
           />
         </div>
         <button className="btn-primary" style={{ width: "100%" }} disabled={busy || password.length < 1}>
           {busy ? "Входим…" : "Войти"}
         </button>
         {error ? <div className="err">{error}</div> : null}
-        <div className="hint">
-          Пароль задаётся в <code>.env</code> как <code>ADMIN_PASSWORD</code>. Админка работает отдельно от Telegram-бота.
-        </div>
+        <p className="hint">Отдельный вход по паролю из .env — бот сюда не пускает.</p>
       </form>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconPhoto } from "../components/Icons";
+import { PageHeader } from "../components/PageHeader";
 import { api, type Dashboard, type MissingReport, type Settlement, type SettlementMismatch } from "../lib/api";
 import {
   dayName,
@@ -7,6 +8,7 @@ import {
   formatKg,
   formatRub,
   fmtShort,
+  initials,
   periodLabel,
 } from "../lib/format";
 import { ApiError } from "../lib/http";
@@ -480,190 +482,202 @@ export function HomePage({ periodId, onPeriod }: Props) {
     return <div className="loading">Загрузка…</div>;
   }
 
+  const pendingCount = pending?.length ?? dashboard.pendingCount;
+  const gapCount = dashboard.gaps.length;
+
   return (
     <>
-      <h1 className="page-title">Главная</h1>
-      <div className="page-sub">Что требует внимания прямо сейчас</div>
+      <PageHeader
+        title="Главная"
+        sub="Сначала то, что нужно закрыть руками — потом цифры и расчёт"
+        actions={
+          view?.settled ? undefined : (
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={busyId === "calculate"}
+              onClick={() => void openCalculate()}
+            >
+              {busyId === "calculate" && !calcOpen ? "…" : "Рассчитать неделю"}
+            </button>
+          )
+        }
+      />
 
-      <div className="card">
-        <h2>Сколько собрано</h2>
-        <div className="h2-sub">По подтверждённым записям, сравниваем с суммой от магазина</div>
-        <div className="stat-row">
-          <span>Собрано</span>
-          <span className="val">
-            {formatKg(dashboard.confirmedKg)} кг · {formatRub(dashboard.confirmedRub)} ₽
-          </span>
-        </div>
-        <div className="stat-row">
-          <span>Ожидается по сумме магазина</span>
-          <span className="val">
-            {formatKg(dashboard.expectedKg)} кг · {formatRub(dashboard.expectedRub)} ₽
+      <div className="hero">
+        <div className="hero-kicker">Собрано за выбранную неделю</div>
+        <div className="hero-amount">{formatKg(dashboard.confirmedKg)} кг</div>
+        <div className="hero-meta">
+          <span>{formatRub(dashboard.confirmedRub)} ₽ по подтверждённым записям</span>
+          <span>
+            счёт магазина: {formatKg(dashboard.expectedKg)} кг · {formatRub(dashboard.expectedRub)} ₽
           </span>
         </div>
         <div className="progress">
           <div className="fill" style={{ width: `${dashboard.percent}%` }} />
         </div>
-        <div className="h2-sub" style={{ marginBottom: 0 }}>
+        <div className="h2-sub">
           {dashboard.percent}% от ожидаемого
-          {dashboard.status === "open" ? " — период ещё открыт, донабирается" : " — период закрыт"}
+          {dashboard.status === "open" ? " — неделя ещё открыта" : " — неделя закрыта"}
         </div>
       </div>
 
-      <div className="card">
-        <h2>
-          Накладные на проверке{" "}
-          <span className="badge warn">{pending?.length ?? dashboard.pendingCount}</span>
-        </h2>
-        <div className="h2-sub">Сборщики прислали фото — подтверди кг, чтобы они попали в сумму</div>
-        {pending === undefined ? (
-          <div className="loading">Загрузка…</div>
-        ) : pending.length === 0 ? (
-          <div className="empty">Всё проверено ✓</div>
-        ) : (
-          pending.map((item) => (
-            <div className="review-item" key={item._id}>
-              <div className="review-top">
-                <PendingPhoto
-                  entryId={item._id}
-                  token={token ?? ""}
-                  hasPhoto={Boolean(item.hasPhoto ?? item.telegramFileId)}
-                />
-                <div className="review-info">
-                  <div className="name">{item.creditedByName ?? item.collectorName}</div>
-                  <div className="meta">
-                    {fmtShort(item.date)} · {dayName(item.date)}
-                    {item.creditedByName ? ` · за ${item.collectorName}` : ""}
-                    {item.hasPhoto || item.telegramFileId ? " · есть фото" : " · без фото"}
+      <div className="work-grid">
+        <div className="card">
+          <div className="card-head">
+            <h2>Накладные</h2>
+            <span className={`badge ${pendingCount ? "warn" : "ok"}`}>{pendingCount}</span>
+          </div>
+          <p className="h2-sub">Фото от сборщиков. Подтверди кг — тогда они попадут в сумму.</p>
+          {pending === undefined ? (
+            <div className="loading">Загрузка…</div>
+          ) : pending.length === 0 ? (
+            <div className="empty">Всё проверено</div>
+          ) : (
+            pending.map((item) => (
+              <div className="review-item" key={item._id}>
+                <div className="review-top">
+                  <PendingPhoto
+                    entryId={item._id}
+                    token={token ?? ""}
+                    hasPhoto={Boolean(item.hasPhoto ?? item.telegramFileId)}
+                  />
+                  <div className="review-info">
+                    <div className="name">{item.creditedByName ?? item.collectorName}</div>
+                    <div className="meta">
+                      {fmtShort(item.date)} · {dayName(item.date)}
+                      {item.creditedByName ? ` · за ${item.collectorName}` : ""}
+                      {item.hasPhoto || item.telegramFileId ? " · есть фото" : " · без фото"}
+                    </div>
                   </div>
                 </div>
+                <div className="review-actions">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder="кг"
+                    value={kgDraft[item._id] ?? (item.kg !== undefined ? String(item.kg) : "")}
+                    onChange={(event) =>
+                      setKgDraft((prev) => ({ ...prev, [item._id]: event.target.value }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="btn-confirm"
+                    disabled={busyId === item._id || dashboard.settled}
+                    onClick={() => void onConfirm(item._id, item.kg)}
+                  >
+                    Подтвердить
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-reject"
+                    disabled={busyId === item._id || dashboard.settled}
+                    onClick={() => void onReject(item._id)}
+                  >
+                    Отклонить
+                  </button>
+                </div>
               </div>
-              <div className="review-actions">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  placeholder="кг"
-                  value={kgDraft[item._id] ?? (item.kg !== undefined ? String(item.kg) : "")}
-                  onChange={(event) =>
-                    setKgDraft((prev) => ({ ...prev, [item._id]: event.target.value }))
-                  }
-                />
-                <button
-                  type="button"
-                  className="btn-confirm"
-                  disabled={busyId === item._id || dashboard.settled}
-                  onClick={() => void onConfirm(item._id, item.kg)}
-                >
-                  Подтвердить
-                </button>
-                <button
-                  type="button"
-                  className="btn-reject"
-                  disabled={busyId === item._id || dashboard.settled}
-                  onClick={() => void onReject(item._id)}
-                >
-                  Отклонить
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="card">
-        <h2>
-          Пропуски <span className="badge info">{dashboard.gaps.length}</span>
-        </h2>
-        <div className="h2-sub">
-          Дни по графику без записи. Если участник сам не внёс кг, можно указать их вручную — и за
-          текущую неделю, и за прошлую, пока она не оплачена.
+            ))
+          )}
         </div>
-        {dashboard.gaps.length === 0 ? (
-          <div className="empty">Пропусков нет</div>
-        ) : (
-          groupGaps(dashboard.gaps).map((group) => (
-            <div className="gap-item gap-kg" key={group.collectorId}>
-              <div>
-                <div>{group.collectorName}</div>
-                {dashboard.settled ? (
-                  <div className="dates" style={{ textAlign: "left", marginTop: 4 }}>
-                    {group.dates.map((date) => (
-                      <span key={date}>
-                        {fmtShort(date)} · {dayName(date)}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  group.dates.map((date) => {
-                    const key = `${group.collectorId}:${date}`;
-                    return (
-                      <div className="review-actions" key={date}>
-                        <span className="d">
-                          {fmtShort(date)} · {dayName(date)}
-                        </span>
-                        <input
-                          type="number"
-                          min="0.1"
-                          step="0.1"
-                          placeholder="кг"
-                          value={kgDraft[key] ?? ""}
-                          onChange={(event) =>
-                            setKgDraft((prev) => ({ ...prev, [key]: event.target.value }))
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="btn-confirm"
-                          disabled={busyId === `kg-${key}`}
-                          onClick={() => void onAdminKg(periodId, group.collectorId, date)}
-                        >
-                          {busyId === `kg-${key}` ? "…" : "Внести"}
-                        </button>
+
+        <div className="card">
+          <div className="card-head">
+            <h2>Пропуски</h2>
+            <span className={`badge ${gapCount ? "info" : "ok"}`}>{gapCount}</span>
+          </div>
+          <p className="h2-sub">Дни по графику без записи. Можно внести кг вручную или напомнить.</p>
+          {dashboard.gaps.length === 0 ? (
+            <div className="empty">Пропусков нет</div>
+          ) : (
+            groupGaps(dashboard.gaps).map((group) => (
+              <div className="gap-item gap-kg" key={group.collectorId}>
+                <div className="person-row">
+                  <span className="avatar">{initials(group.collectorName)}</span>
+                  <div>
+                    <div className="name">{group.collectorName}</div>
+                    {dashboard.settled ? (
+                      <div className="dates" style={{ textAlign: "left", marginTop: 4 }}>
+                        {group.dates.map((date) => (
+                          <span key={date}>
+                            {fmtShort(date)} · {dayName(date)}
+                          </span>
+                        ))}
                       </div>
-                    );
-                  })
-                )}
+                    ) : (
+                      group.dates.map((date) => {
+                        const key = `${group.collectorId}:${date}`;
+                        return (
+                          <div className="review-actions" key={date}>
+                            <span className="d">
+                              {fmtShort(date)} · {dayName(date)}
+                            </span>
+                            <input
+                              type="number"
+                              min="0.1"
+                              step="0.1"
+                              placeholder="кг"
+                              value={kgDraft[key] ?? ""}
+                              onChange={(event) =>
+                                setKgDraft((prev) => ({ ...prev, [key]: event.target.value }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="btn-confirm"
+                              disabled={busyId === `kg-${key}`}
+                              onClick={() => void onAdminKg(periodId, group.collectorId, date)}
+                            >
+                              {busyId === `kg-${key}` ? "…" : "Внести"}
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+                <div className="row-actions">
+                  <button
+                    type="button"
+                    className="btn-quiet"
+                    disabled={busyId === `remind-report-${group.collectorId}`}
+                    onClick={() => void remind(group.collectorId, "report", group.hasTelegram)}
+                  >
+                    {busyId === `remind-report-${group.collectorId}`
+                      ? "…"
+                      : group.hasTelegram
+                        ? "Напомнить"
+                        : "Скопировать"}
+                  </button>
+                </div>
               </div>
-              <div className="row-actions">
-                <button
-                  type="button"
-                  className="btn-quiet"
-                  disabled={busyId === `remind-report-${group.collectorId}`}
-                  onClick={() => void remind(group.collectorId, "report", group.hasTelegram)}
-                >
-                  {busyId === `remind-report-${group.collectorId}`
-                    ? "…"
-                    : group.hasTelegram
-                      ? "Напомнить"
-                      : "Скопировать"}
-                </button>
-              </div>
-            </div>
-          ))
-        )}
+            ))
+          )}
+        </div>
       </div>
 
       <div className="card">
-        <h2>Расчёт</h2>
-        <div className="h2-sub">
-          Счёт магазина за прошлую неделю сверяется с кг участников. Если кто-то не внёс кг, можно
-          указать их вручную — пока неделя не оплачена.
+        <div className="card-head">
+          <div>
+            <h2>Расчёт прошлой недели</h2>
+            <p className="h2-sub" style={{ marginBottom: 0 }}>
+              Счёт магазина сверяется с кг участников. Пока неделя не оплачена, недостающие кг можно
+              внести здесь.
+            </p>
+          </div>
         </div>
         {view?.settled ? (
           <div className="empty" style={{ textAlign: "left" }}>
             Прошлая неделя закрыта — все оплатили. В новый расчёт она не попадёт.
           </div>
-        ) : (
-          <button
-            type="button"
-            className="btn-primary"
-            style={{ marginBottom: view ? 4 : 0 }}
-            disabled={busyId === "calculate"}
-            onClick={() => void openCalculate()}
-          >
-            {busyId === "calculate" && !calcOpen ? "…" : "Рассчитать"}
-          </button>
-        )}
+        ) : !view ? (
+          <div className="empty" style={{ textAlign: "left", paddingTop: 8 }}>
+            Когда будет счёт магазина — нажми «Рассчитать неделю» сверху.
+          </div>
+        ) : null}
         {lastWeek && lastWeekMissing.length > 0 ? (
           <>
             <div className="h2-sub" style={{ marginTop: 16 }}>
@@ -684,60 +698,69 @@ export function HomePage({ periodId, onPeriod }: Props) {
               {periodLabel(view.startDate, view.endDate)} · {view.rate} ₽/кг
               {view.settled ? " · закрыт" : ""}
             </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Участник</th>
-                  <th>Кг</th>
-                  <th>Сумма</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {view.rows.map((row) => (
-                  <tr key={row.collectorId}>
-                    <td>{row.collectorName}</td>
-                    <td>{formatKg(row.kg)} кг</td>
-                    <td>{formatRub(row.amountRub)} ₽</td>
-                    <td>
-                      <div className="row-actions">
-                        {row.paidAt || view.settled ? (
-                          <span className="badge ok">оплатил</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn-confirm"
-                            disabled={busyId === row.collectorId}
-                            onClick={() => void onPaid(row.collectorId)}
-                          >
-                            {busyId === row.collectorId ? "…" : "Оплатил"}
-                          </button>
-                        )}
-                      </div>
-                    </td>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Участник</th>
+                    <th>Кг</th>
+                    <th>Сумма</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Итого</td>
-                  <td>{formatKg(view.totalKg)} кг</td>
-                  <td>{formatRub(view.totalRub)} ₽</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {view.rows.map((row) => (
+                    <tr key={row.collectorId}>
+                      <td>{row.collectorName}</td>
+                      <td>{formatKg(row.kg)} кг</td>
+                      <td>{formatRub(row.amountRub)} ₽</td>
+                      <td>
+                        <div className="row-actions">
+                          {row.paidAt || view.settled ? (
+                            <span className="badge ok">оплатил</span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-confirm"
+                              disabled={busyId === row.collectorId}
+                              onClick={() => void onPaid(row.collectorId)}
+                            >
+                              {busyId === row.collectorId ? "…" : "Оплатил"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>Итого</td>
+                    <td>{formatKg(view.totalKg)} кг</td>
+                    <td>{formatRub(view.totalRub)} ₽</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </>
         ) : null}
       </div>
 
-      <button type="button" className="btn-primary" onClick={() => setShowMessage((value) => !value)}>
-        {showMessage ? "Скрыть сообщение" : "Собрать сообщение для Telegram"}
-      </button>
-      {showMessage ? (
-        <div className="card" style={{ marginTop: 12, maxWidth: 520 }}>
-          <h2>Сообщение</h2>
-          {view?.text || summary ? (
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <h2>Сводка в группу</h2>
+            <p className="h2-sub" style={{ marginBottom: 0 }}>
+              Текст для Telegram. Если чат не привязан, можно скопировать вручную.
+            </p>
+          </div>
+          <button type="button" className="btn-secondary" onClick={() => setShowMessage((value) => !value)}>
+            {showMessage ? "Скрыть" : "Показать текст"}
+          </button>
+        </div>
+        {showMessage ? (
+          view?.text || summary ? (
             <>
               <textarea readOnly value={view?.text ?? summary?.text ?? ""} />
               <div className="msg-actions">
@@ -753,26 +776,29 @@ export function HomePage({ periodId, onPeriod }: Props) {
                   {busyId === "summary" ? "Отправляем…" : "Отправить в группу"}
                 </button>
               </div>
-              <div className="h2-sub" style={{ marginTop: 10, marginBottom: 0 }}>
-                Чат настраивается в разделе Telegram. Если группа не привязана, можно скопировать текст
-                вручную.
-              </div>
             </>
           ) : (
             <div className="loading">Собираем текст…</div>
-          )}
-        </div>
-      ) : null}
+          )
+        ) : null}
+      </div>
       {calcOpen ? (
         <div className="overlay" onClick={() => setCalcOpen(false)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <h2>Расчёт</h2>
-            <div className="h2-sub">
-              {calcPreview
-                ? periodLabel(calcPreview.startDate, calcPreview.endDate)
-                : "Прошлая неделя"}
-              {" · "}
-              20 ₽/кг
+            <div className="modal-head">
+              <div>
+                <h2>Расчёт</h2>
+                <p className="h2-sub">
+                  {calcPreview
+                    ? periodLabel(calcPreview.startDate, calcPreview.endDate)
+                    : "Прошлая неделя"}
+                  {" · "}
+                  {calcPreview?.rate ?? 20} ₽/кг
+                </p>
+              </div>
+              <button type="button" className="btn-ghost" onClick={() => setCalcOpen(false)}>
+                Закрыть
+              </button>
             </div>
             {calcPreview ? (
               <div className="stat-row" style={{ marginBottom: 14 }}>
@@ -837,10 +863,10 @@ export function HomePage({ periodId, onPeriod }: Props) {
                   />
                 </div>
               </div>
-              <div className="h2-sub">
-                Итог по участникам должен совпасть со счётом. Тогда расчёт готов, и каждому уйдёт
-                сообщение: период, сумма и куда переводить.
-              </div>
+              <p className="h2-sub">
+                Итог по участникам должен совпасть со счётом. Тогда каждому уйдёт сообщение: период,
+                сумма и куда переводить.
+              </p>
               {mismatch ? (
                 <div className="mismatch">
                   <div className="mismatch-title">Итог не сходится со счётом</div>
@@ -908,7 +934,7 @@ export function HomePage({ periodId, onPeriod }: Props) {
                   ) : null}
                 </div>
               ) : null}
-              {toast ? <div className="toast" style={{ position: "static" }}>{toast}</div> : null}
+              {toast ? <div className="toast inline">{toast}</div> : null}
               {error ? <div className="err">{error}</div> : null}
               <div className="msg-actions">
                 <button type="button" className="btn-secondary" onClick={() => setCalcOpen(false)}>
@@ -923,7 +949,8 @@ export function HomePage({ periodId, onPeriod }: Props) {
         </div>
       ) : null}
       {toast && !calcOpen ? <div className="toast">{toast}</div> : null}
-      {error && !calcOpen ? <div className="err">{error}</div> : null}
+      {error && !calcOpen ? <div className="toast bad">{error}</div> : null}
     </>
   );
 }
+

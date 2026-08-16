@@ -75,72 +75,78 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
     }
   }
 
+  const status = selected?.settledAt
+    ? "оплачена"
+    : selected?.status === "open"
+      ? "открыта"
+      : selected
+        ? "не оплачена"
+        : "";
+
   return (
     <>
       <button type="button" className="period-pill" onClick={() => setOpen(true)}>
-        {label}
+        <span className="period-pill-label">{label}</span>
+        {status ? <span className="period-pill-status">{status}</span> : null}
         <span className="arrow">▾</span>
       </button>
       {open ? (
         <div className="overlay" onClick={() => setOpen(false)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <h2>Периоды</h2>
-            <div className="h2-sub">
-              Неделя с понедельника по воскресенье открывается сама. Воскресенье — день взносов.
+            <div className="modal-head">
+              <div>
+                <h2>Неделя</h2>
+                <p className="h2-sub">
+                  С понедельника по воскресенье, открывается сама. Воскресенье — день взносов.
+                </p>
+              </div>
+              <button type="button" className="btn-ghost" onClick={() => setOpen(false)}>
+                Закрыть
+              </button>
             </div>
             {periods === undefined ? (
               <div className="loading">Загрузка…</div>
             ) : periods.length === 0 ? (
               <div className="empty">Периодов ещё нет</div>
             ) : (
-              periods.map((period) => (
-                <button
-                  key={period._id}
-                  type="button"
-                  className={`period-row${period._id === selectedId ? " active" : ""}`}
-                  onClick={() => {
-                    onSelect(period._id);
-                    setOpen(false);
-                  }}
-                >
-                  <span>
-                    {periodLabel(period.startDate, period.endDate)}
-                  </span>
-                  <span
-                    className={`badge ${
-                      period.settledAt
-                        ? "info"
-                        : period.status === "open"
-                          ? "ok"
-                          : "warn"
-                    }`}
+              <div className="period-list">
+                {periods.map((period) => (
+                  <button
+                    key={period._id}
+                    type="button"
+                    className={`period-row${period._id === selectedId ? " active" : ""}`}
+                    onClick={() => {
+                      onSelect(period._id);
+                      setOpen(false);
+                    }}
                   >
-                    {period.settledAt
-                      ? "оплачен"
-                      : period.status === "open"
-                        ? "открыт"
-                        : "не оплачен"}
-                  </span>
-                </button>
-              ))
-            )}
-
-            {openPeriod ? (
-              <button className="btn-secondary" disabled={busy} onClick={() => void onClose()}>
-                Закрыть текущую неделю
-              </button>
-            ) : (
-              <div className="empty" style={{ textAlign: "left" }}>
-                Текущая неделя закрыта. Следующая откроется в понедельник.
+                    <span>{periodLabel(period.startDate, period.endDate)}</span>
+                    <span
+                      className={`badge ${
+                        period.settledAt
+                          ? "info"
+                          : period.status === "open"
+                            ? "ok"
+                            : "warn"
+                      }`}
+                    >
+                      {period.settledAt
+                        ? "оплачена"
+                        : period.status === "open"
+                          ? "открыта"
+                          : "не оплачена"}
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
 
             {openPeriod ? (
-              <form onSubmit={(event) => void onSaveWeek(event)} style={{ marginTop: 18 }}>
-                <h2>Эта неделя</h2>
-                <div className="h2-sub">
+              <form className="period-settings" onSubmit={(event) => void onSaveWeek(event)}>
+                <h3>Параметры открытой недели</h3>
+                <p className="h2-sub">
                   Даты не трогаем — только сумма магазина и ставка. Они копируются на следующую неделю.
-                </div>
+                </p>
                 <div className="grid2">
                   <div className="field">
                     <label htmlFor="pTotal">Сумма магазина, ₽</label>
@@ -164,13 +170,26 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
                   </div>
                 </div>
                 {error ? <div className="err">{error}</div> : null}
-                <button className="btn-primary" disabled={busy}>
-                  Сохранить
-                </button>
+                <div className="msg-actions">
+                  <button className="btn-primary" disabled={busy}>
+                    Сохранить
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-quiet danger"
+                    disabled={busy}
+                    onClick={() => void onClose()}
+                  >
+                    Закрыть неделю
+                  </button>
+                </div>
               </form>
-            ) : error ? (
-              <div className="err">{error}</div>
-            ) : null}
+            ) : (
+              <div className="empty" style={{ textAlign: "left" }}>
+                Текущая неделя закрыта. Следующая откроется в понедельник.
+                {error ? <div className="err">{error}</div> : null}
+              </div>
+            )}
           </div>
         </div>
       ) : null}

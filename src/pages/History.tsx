@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { api } from "../lib/api";
 import { dayName, errorMessage, fmtShort } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
@@ -78,47 +79,67 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
 
   return (
     <>
-      <h1 className="page-title">История</h1>
-      <div className="page-sub">Все подтверждённые записи выбранного периода</div>
+      <PageHeader
+        title="История"
+        sub="Все подтверждённые записи выбранной недели"
+        actions={
+          canEdit && !showForm ? (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                if (!date) {
+                  setDate(startDate);
+                }
+                setShowForm(true);
+              }}
+            >
+              Запись вручную
+            </button>
+          ) : undefined
+        }
+      />
       <div className="card">
         {rows === undefined ? (
           <div className="loading">Загрузка…</div>
         ) : rows.length === 0 ? (
           <div className="empty">Подтверждённых записей пока нет</div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Дата</th>
-                <th>Участник</th>
-                <th>Кг</th>
-                <th>Источник</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row._id}>
-                  <td>
-                    {fmtShort(row.date)}{" "}
-                    <span style={{ color: "#8b8b8b" }}>· {dayName(row.date)}</span>
-                  </td>
-                  <td>
-                    {row.creditedByName ?? row.collectorName}
-                    {row.creditedByName ? (
-                      <div className="hist-credit">день {row.collectorName}</div>
-                    ) : null}
-                    {row.note ? <div className="hist-note">«{row.note}»</div> : null}
-                  </td>
-                  <td>{row.kg} кг</td>
-                  <td>
-                    <span className={`badge ${row.source === "invoice" ? "ok" : "info"}`}>
-                      {row.source === "invoice" ? "накладная" : "вручную"}
-                    </span>
-                  </td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Участник</th>
+                  <th>Кг</th>
+                  <th>Источник</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row._id}>
+                    <td>
+                      {fmtShort(row.date)}{" "}
+                      <span style={{ color: "var(--muted)" }}>· {dayName(row.date)}</span>
+                    </td>
+                    <td>
+                      {row.creditedByName ?? row.collectorName}
+                      {row.creditedByName ? (
+                        <div className="hist-credit">день {row.collectorName}</div>
+                      ) : null}
+                      {row.note ? <div className="hist-note">«{row.note}»</div> : null}
+                    </td>
+                    <td>{row.kg} кг</td>
+                    <td>
+                      <span className={`badge ${row.source === "invoice" ? "ok" : "info"}`}>
+                        {row.source === "invoice" ? "накладная" : "вручную"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -201,24 +222,16 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
               />
             </div>
             {error ? <div className="err">{error}</div> : null}
-            <button className="btn-primary" disabled={busy}>
-              Добавить
-            </button>
+            <div className="msg-actions">
+              <button className="btn-primary" disabled={busy}>
+                Добавить
+              </button>
+              <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>
+                Отмена
+              </button>
+            </div>
           </form>
-        ) : (
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => {
-              if (!date) {
-                setDate(startDate);
-              }
-              setShowForm(true);
-            }}
-          >
-            + Запись вручную
-          </button>
-        )
+        ) : null
       ) : null}
     </>
   );

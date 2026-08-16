@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { api } from "../lib/api";
 import { DAY_NAMES, errorMessage } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
@@ -69,80 +70,91 @@ export function ParticipantsPage() {
 
   return (
     <>
-      <h1 className="page-title">Участники</h1>
-      <div className="page-sub">День недели нужен, чтобы приложение само видело пропуски</div>
+      <PageHeader
+        title="Участники"
+        sub="День недели нужен, чтобы админка сама видела пропуски. Имя и Telegram ID правятся прямо в таблице."
+        actions={
+          showAdd ? undefined : (
+            <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}>
+              Добавить
+            </button>
+          )
+        }
+      />
       <div className="card">
         {collectors === undefined ? (
           <div className="loading">Загрузка…</div>
         ) : collectors.length === 0 ? (
           <div className="empty">Участников пока нет</div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Имя</th>
-                <th>День</th>
-                <th>Telegram ID</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {collectors.map((collector) => (
-                <tr key={collector._id}>
-                  <td>
-                    <input
-                      defaultValue={collector.name}
-                      onBlur={(event) => {
-                        const next = event.target.value.trim();
-                        if (next && next !== collector.name) {
-                          void patch(collector._id, { name: next });
-                        }
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <select
-                      value={collector.dayOfWeek === null ? "" : String(collector.dayOfWeek)}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        void patch(collector._id, {
-                          dayOfWeek: value === "" ? null : Number(value),
-                        });
-                      }}
-                    >
-                      <option value="">—</option>
-                      {DAY_NAMES.map((label, index) => (
-                        <option value={index} key={label}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      defaultValue={collector.telegramUserId ?? ""}
-                      placeholder="не привязан"
-                      onBlur={(event) => {
-                        const next = event.target.value.trim();
-                        if (next !== (collector.telegramUserId ?? "")) {
-                          void patch(collector._id, { telegramUserId: next });
-                        }
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className={`toggle-pill ${collector.active ? "on" : "off"}`}
-                      onClick={() => void patch(collector._id, { active: !collector.active })}
-                    >
-                      {collector.active ? "активен" : "скрыт"}
-                    </button>
-                  </td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Имя</th>
+                  <th>День</th>
+                  <th>Telegram ID</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {collectors.map((collector) => (
+                  <tr key={collector._id}>
+                    <td>
+                      <input
+                        defaultValue={collector.name}
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next && next !== collector.name) {
+                            void patch(collector._id, { name: next });
+                          }
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <select
+                        value={collector.dayOfWeek === null ? "" : String(collector.dayOfWeek)}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          void patch(collector._id, {
+                            dayOfWeek: value === "" ? null : Number(value),
+                          });
+                        }}
+                      >
+                        <option value="">—</option>
+                        {DAY_NAMES.map((label, index) => (
+                          <option value={index} key={label}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        defaultValue={collector.telegramUserId ?? ""}
+                        placeholder="не привязан"
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next !== (collector.telegramUserId ?? "")) {
+                            void patch(collector._id, { telegramUserId: next });
+                          }
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className={`toggle-pill ${collector.active ? "on" : "off"}`}
+                        onClick={() => void patch(collector._id, { active: !collector.active })}
+                      >
+                        {collector.active ? "активен" : "скрыт"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
       {showAdd ? (
@@ -183,15 +195,16 @@ export function ParticipantsPage() {
               />
             </div>
           </div>
-          <button className="btn-primary" disabled={busy || name.trim().length < 1}>
-            Сохранить
-          </button>
+          <div className="msg-actions">
+            <button className="btn-primary" disabled={busy || name.trim().length < 1}>
+              Сохранить
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setShowAdd(false)}>
+              Отмена
+            </button>
+          </div>
         </form>
-      ) : (
-        <button type="button" className="btn-secondary" onClick={() => setShowAdd(true)}>
-          + Добавить участника
-        </button>
-      )}
+      ) : null}
       {error ? <div className="err">{error}</div> : null}
       {toast ? <div className="toast">{toast}</div> : null}
     </>

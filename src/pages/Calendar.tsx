@@ -2,6 +2,7 @@ import { api } from "../lib/api";
 import { dayNumber, initials, mondayPad } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
+import { PageHeader } from "../components/PageHeader";
 
 const DOWS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -27,10 +28,10 @@ export function CalendarPage({ periodId }: Props) {
 
   return (
     <>
-      <h1 className="page-title">Календарь</h1>
-      <div className="page-sub">
-        Кто по графику, где пропуск, где ждёт проверки — на весь период сразу
-      </div>
+      <PageHeader
+        title="Календарь"
+        sub="Кто по графику, где пропуск, где ждёт проверки — вся неделя сразу"
+      />
       <div className="card">
         <div className="cal-grid">
           {DOWS.map((label) => (
@@ -64,6 +65,10 @@ export function CalendarPage({ periodId }: Props) {
           <span>
             <span className="dot" style={{ background: "#eeb3b3" }} />
             пропуск
+          </span>
+          <span>
+            <span className="dot" style={{ background: "#e4e0d4" }} />
+            нет смены
           </span>
         </div>
       </div>
