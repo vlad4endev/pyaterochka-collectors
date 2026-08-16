@@ -3,6 +3,7 @@ import { STORE_TIME_ZONE, clockInTimeZone } from "./dates";
 import { getOpenPeriod, getSettings } from "./domain";
 import { listOverdueReportReminders } from "./messages";
 import { refreshTelegramRuntime, sendTelegramMessage } from "./telegram";
+import { refreshMaxRuntime, sendMaxMessage } from "./max";
 
 export const DAILY_REPORT_REMINDER_HOUR = 10;
 const CHECK_EVERY_MS = 30_000;
@@ -48,8 +49,9 @@ export async function tickDailyReportReminders(nowMs = Date.now()): Promise<void
     if (settings.dailyReportReminderSentOn === clock.date) {
       return;
     }
-    const runtime = await refreshTelegramRuntime();
-    if (!runtime.botToken) {
+    const telegram = await refreshTelegramRuntime();
+    const max = await refreshMaxRuntime();
+    if (!telegram.botToken && !max.botToken) {
       return;
     }
     const sent = await sendDailyReportReminders(clock.date);
@@ -81,8 +83,14 @@ async function sendDailyReportReminders(
   let skipped = 0;
   for (const reminder of reminders) {
     try {
-      await sendTelegramMessage(reminder.chatId, reminder.text);
-      sent += 1;
+      if (reminder.telegramChatId) {
+        await sendTelegramMessage(reminder.telegramChatId, reminder.text);
+        sent += 1;
+      }
+      if (reminder.maxChatId) {
+        await sendMaxMessage(reminder.maxChatId, reminder.text);
+        sent += 1;
+      }
     } catch (err) {
       skipped += 1;
       console.warn(

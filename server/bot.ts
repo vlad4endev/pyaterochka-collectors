@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard, Keyboard, type Context } from "grammy";
 import { db } from "./db";
 import { patchDefaultSettings } from "./lib/domain";
 import { HttpError } from "./lib/errors";
+import { buildGreetingText, MINI_APP_BUTTON } from "./lib/messages";
 import {
   createInvoiceFromPhoto,
   findCollectorByTelegram,
@@ -17,11 +18,11 @@ let currentBot: Bot | null = null;
 let restartChain: Promise<void> = Promise.resolve();
 
 function inlineAppButton(url: string): InlineKeyboard {
-  return new InlineKeyboard().webApp("Открыть приложение", url);
+  return new InlineKeyboard().webApp(MINI_APP_BUTTON, url);
 }
 
 function replyAppKeyboard(url: string): Keyboard {
-  return new Keyboard().webApp("Открыть приложение", url).resized().persistent();
+  return new Keyboard().webApp(MINI_APP_BUTTON, url).resized().persistent();
 }
 
 async function sendGreeting(ctx: Context, withPersistentButton = false): Promise<void> {
@@ -31,39 +32,22 @@ async function sendGreeting(ctx: Context, withPersistentButton = false): Promise
   }
   const collector = await findCollectorByTelegram(db, String(from.id));
   const url = getMiniAppUrl();
-  const helloName = collector?.name ?? from.first_name;
-  const lines = [
-    `Привет, ${helloName}!`,
-    "",
-    "Это бот сборщиков «Пятёрка на бульваре».",
-  ];
-  if (url) {
-    lines.push(
-      "",
-      "Нажми «Открыть приложение» — там сумма за период, можно внести кг и фото ведомости.",
-    );
-  } else {
-    lines.push("", "Мини-приложение пока не настроено. Организатор задаёт URL в админке.");
-  }
-  if (collector?.active) {
-    lines.push("", "Фото ведомости можно загрузить в приложении или прислать сюда в чат.");
-  } else if (!collector) {
-    lines.push(
-      "",
-      `Если тебя ещё нет в списке, покажи организатору свой Telegram ID: ${from.id}`,
-    );
-  } else {
-    lines.push("", "Ты скрыт в списке участников — напиши организатору.");
-  }
+  const text = buildGreetingText({
+    helloName: collector?.name ?? from.first_name,
+    hasApp: Boolean(url),
+    status: collector?.active ? "active" : collector ? "inactive" : "unknown",
+    idLabel: "Telegram ID",
+    id: String(from.id),
+  });
 
   if (!url) {
-    await ctx.reply(lines.join("\n"));
+    await ctx.reply(text);
     return;
   }
   if (withPersistentButton) {
-    await ctx.reply(lines.join("\n"), { reply_markup: replyAppKeyboard(url) });
+    await ctx.reply(text, { reply_markup: replyAppKeyboard(url) });
   }
-  await ctx.reply(withPersistentButton ? "Открыть приложение:" : lines.join("\n"), {
+  await ctx.reply(withPersistentButton ? MINI_APP_BUTTON : text, {
     reply_markup: inlineAppButton(url),
   });
 }
@@ -239,7 +223,7 @@ async function restartBotInner(): Promise<void> {
       await bot.api.setChatMenuButton({
         menu_button: {
           type: "web_app",
-          text: "Приложение",
+          text: MINI_APP_BUTTON,
           web_app: { url },
         },
       });

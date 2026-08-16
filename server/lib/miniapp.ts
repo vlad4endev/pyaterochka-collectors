@@ -42,7 +42,11 @@ export type MiniDay = {
   scheduled: MiniPerson[];
 };
 
+export type MiniAppPlatform = "telegram" | "max";
+
 export type MiniHome = {
+  platform: MiniAppPlatform;
+  user: { id: string; firstName: string };
   telegram: { id: string; firstName: string };
   collector: {
     _id: string;
@@ -91,6 +95,25 @@ export async function findCollectorByTelegram(
   });
 }
 
+export async function findCollectorByMax(
+  db: PrismaClient,
+  maxUserId: string,
+): Promise<Collector | null> {
+  return await db.collector.findFirst({
+    where: { maxUserId },
+  });
+}
+
+export async function findCollectorByPlatform(
+  db: PrismaClient,
+  platform: MiniAppPlatform,
+  userId: string,
+): Promise<Collector | null> {
+  return platform === "max"
+    ? await findCollectorByMax(db, userId)
+    : await findCollectorByTelegram(db, userId);
+}
+
 export function requireActiveCollector(collector: Collector | null): Collector {
   if (!collector) {
     throw new HttpError("Not a collector", 403);
@@ -125,11 +148,11 @@ function toPerson(row: Collector): MiniPerson {
 
 export async function getMiniHome(
   db: PrismaClient,
-  telegram: { id: number; firstName: string },
+  account: { id: number; firstName: string; platform: MiniAppPlatform },
   nowMs: number,
 ): Promise<MiniHome> {
-  const telegramUserId = String(telegram.id);
-  const collector = await findCollectorByTelegram(db, telegramUserId);
+  const userId = String(account.id);
+  const collector = await findCollectorByPlatform(db, account.platform, userId);
   const period = await getOpenPeriod(db);
   const settings = await getSettings(db);
   const clock = clockInTimeZone(STORE_TIME_ZONE, nowMs);
@@ -174,8 +197,11 @@ export async function getMiniHome(
         .reverse()
     : [];
 
+  const identity = { id: userId, firstName: account.firstName };
   const base = {
-    telegram: { id: telegramUserId, firstName: telegram.firstName },
+    platform: account.platform,
+    user: identity,
+    telegram: identity,
     collector: collector
       ? {
           _id: collector.id,
@@ -452,11 +478,12 @@ export async function skipCollectorDayInPeriod(
 
 export async function createInvoiceFromPhoto(
   db: PrismaClient,
-  telegramUserId: string,
+  userId: string,
   fileId: string,
   nowMs: number,
+  platform: MiniAppPlatform = "telegram",
 ): Promise<{ collectorName: string; date: string }> {
-  const collector = requireActiveCollector(await findCollectorByTelegram(db, telegramUserId));
+  const collector = requireActiveCollector(await findCollectorByPlatform(db, platform, userId));
   const period = await getOpenPeriod(db);
   if (!period) {
     throw new HttpError("Period not found", 404);

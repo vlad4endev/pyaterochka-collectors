@@ -1,5 +1,13 @@
 import { apiRequest } from "./http";
 
+export type MiniAppPlatform = "telegram" | "max";
+
+function miniAuth(platform: MiniAppPlatform, initData: string) {
+  return platform === "max"
+    ? { maxInitData: initData }
+    : { telegramInitData: initData };
+}
+
 export type Period = {
   _id: string;
   _creationTime: number;
@@ -19,6 +27,7 @@ export type Collector = {
   name: string;
   dayOfWeek: number | null;
   telegramUserId?: string;
+  maxUserId?: string;
   active: boolean;
 };
 
@@ -54,6 +63,7 @@ export type PaymentRow = {
   paidAt: number | null;
   paymentId: string | null;
   hasTelegram: boolean;
+  hasMax: boolean;
 };
 
 export type MissingReport = {
@@ -138,6 +148,16 @@ export type TelegramStatus = {
   pathCheck: TelegramPathCheck | null;
 };
 
+export type MaxStatus = {
+  botTokenSet: boolean;
+  botTokenSource: "database" | "env" | null;
+  botUsername: string | null;
+  botRunning: boolean;
+  miniAppUrl: string | null;
+  groupChatId: string | null;
+  groupChatTitle: string | null;
+};
+
 export type MiniEntry = {
   _id: string;
   date: string;
@@ -157,6 +177,8 @@ export type MiniPerson = {
 };
 
 export type MiniHome = {
+  platform: "telegram" | "max";
+  user: { id: string; firstName: string };
   telegram: { id: string; firstName: string };
   collector: {
     _id: string;
@@ -219,6 +241,7 @@ export type Dashboard = {
     collectorName: string;
     date: string;
     hasTelegram: boolean;
+    hasMax: boolean;
   }>;
   calendar: Array<{
     date: string;
@@ -249,6 +272,7 @@ export const api = {
         name: string;
         dayOfWeek: number | null;
         telegramUserId?: string;
+        maxUserId?: string;
         active?: boolean;
       },
     ) => apiRequest<string>("/collectors", { method: "POST", token, body }),
@@ -259,6 +283,7 @@ export const api = {
         name?: string;
         dayOfWeek?: number | null;
         telegramUserId?: string;
+        maxUserId?: string;
         active?: boolean;
       },
     ) => apiRequest<null>(`/collectors/${id}`, { method: "PATCH", token, body }),
@@ -375,6 +400,24 @@ export const api = {
     test: (token: string) =>
       apiRequest<null>("/telegram/test", { method: "POST", token }),
   },
+  max: {
+    get: (token: string) => apiRequest<MaxStatus>("/max", { token }),
+    saveBot: (
+      token: string,
+      body: { botToken?: string; miniAppUrl?: string },
+    ) => apiRequest<MaxStatus>("/max/bot", { method: "PUT", token, body }),
+    clearBot: (token: string) =>
+      apiRequest<MaxStatus>("/max/bot/clear", { method: "POST", token }),
+    linkChat: (token: string, groupChatId: string) =>
+      apiRequest<MaxStatus>("/max/chat", {
+        method: "PUT",
+        token,
+        body: { groupChatId },
+      }),
+    unlinkChat: (token: string) =>
+      apiRequest<MaxStatus>("/max/chat/unlink", { method: "POST", token }),
+    test: (token: string) => apiRequest<null>("/max/test", { method: "POST", token }),
+  },
   summary: (token: string, periodId: string) =>
     apiRequest<{ text: string; totalKg: number; totalRub: number }>(
       `/messages/summary?periodId=${encodeURIComponent(periodId)}`,
@@ -408,8 +451,8 @@ export const api = {
       body: { periodId, collectorId, kind },
     }),
   miniapp: {
-    home: (initData: string) =>
-      apiRequest<MiniHome>("/miniapp/home", { telegramInitData: initData }),
+    home: (initData: string, platform: MiniAppPlatform = "telegram") =>
+      apiRequest<MiniHome>("/miniapp/home", miniAuth(platform, initData)),
     createEntry: (
       initData: string,
       body: {
@@ -419,7 +462,9 @@ export const api = {
         note?: string;
         photo?: File;
       },
+      platform: MiniAppPlatform = "telegram",
     ) => {
+      const auth = miniAuth(platform, initData);
       if (body.photo) {
         const form = new FormData();
         form.append("date", body.date);
@@ -435,13 +480,13 @@ export const api = {
         form.append("photo", body.photo);
         return apiRequest<string>("/miniapp/entries", {
           method: "POST",
-          telegramInitData: initData,
+          ...auth,
           body: form,
         });
       }
       return apiRequest<string>("/miniapp/entries", {
         method: "POST",
-        telegramInitData: initData,
+        ...auth,
         body: {
           date: body.date,
           kg: body.kg,
@@ -450,10 +495,10 @@ export const api = {
         },
       });
     },
-    skip: (initData: string, date: string) =>
+    skip: (initData: string, date: string, platform: MiniAppPlatform = "telegram") =>
       apiRequest<string>("/miniapp/entries/skip", {
         method: "POST",
-        telegramInitData: initData,
+        ...miniAuth(platform, initData),
         body: { date },
       }),
   },

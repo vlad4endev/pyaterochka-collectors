@@ -8,6 +8,7 @@ export function collectorDto(row: Collector) {
     name: row.name,
     dayOfWeek: row.dayOfWeek,
     telegramUserId: row.telegramUserId ?? undefined,
+    maxUserId: row.maxUserId ?? undefined,
     active: row.active,
   };
 }

@@ -87,6 +87,9 @@ type SettingsPatch = {
   miniAppUrl?: string | null;
   groupChatId?: string | null;
   groupChatTitle?: string | null;
+  maxBotToken?: string | null;
+  maxGroupChatId?: string | null;
+  maxGroupChatTitle?: string | null;
   proxyType?: string | null;
   proxyHost?: string | null;
   proxyPort?: number | null;
@@ -112,6 +115,9 @@ export async function patchDefaultSettings(
         miniAppUrl: data.miniAppUrl,
         groupChatId: data.groupChatId,
         groupChatTitle: data.groupChatTitle,
+        maxBotToken: data.maxBotToken,
+        maxGroupChatId: data.maxGroupChatId,
+        maxGroupChatTitle: data.maxGroupChatTitle,
         proxyType: data.proxyType,
         proxyHost: data.proxyHost,
         proxyPort: data.proxyPort,
@@ -140,10 +146,16 @@ export function normalizeName(name: string): string {
 export function normalizeOptionalTelegram(
   telegramUserId: string | undefined,
 ): string | undefined {
-  if (telegramUserId === undefined) {
+  return normalizeOptionalMessengerId(telegramUserId);
+}
+
+export function normalizeOptionalMessengerId(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) {
     return undefined;
   }
-  const trimmed = telegramUserId.trim();
+  const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
 }
 

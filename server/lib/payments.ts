@@ -11,6 +11,7 @@ export type SettlementRow = {
   paidAt: number | null;
   paymentId: string | null;
   hasTelegram: boolean;
+  hasMax: boolean;
 };
 
 export type MissingReport = {
@@ -90,6 +91,7 @@ export async function getPeriodSettlement(
       paidAt: payment?.paidAt?.getTime() ?? null,
       paymentId: payment?.id ?? null,
       hasTelegram: Boolean(collector?.telegramUserId),
+      hasMax: Boolean(collector?.maxUserId),
     });
   }
   rows.sort((a, b) => a.collectorName.localeCompare(b.collectorName, "ru"));

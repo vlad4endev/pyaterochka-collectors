@@ -25,4 +25,10 @@ type TelegramWebApp = {
 
 interface Window {
   Telegram?: { WebApp: TelegramWebApp };
+  WebApp?: {
+    initData: string;
+    initDataUnsafe: { user?: TelegramWebAppUser };
+    ready?: () => void;
+    close?: () => void;
+  };
 }

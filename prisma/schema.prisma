@@ -30,6 +30,7 @@ model Collector {
   name           String
   dayOfWeek      Int?
   telegramUserId String?
+  maxUserId      String?
   active         Boolean  @default(true)
 
   entries         Entry[]  @relation("CollectorEntries")
@@ -37,6 +38,7 @@ model Collector {
   payments        Payment[]
 
   @@index([telegramUserId])
+  @@index([maxUserId])
   @@index([active])
 }
 
@@ -106,6 +108,9 @@ model Settings {
   miniAppUrl                  String?
   groupChatId                 String?
   groupChatTitle              String?
+  maxBotToken                 String?
+  maxGroupChatId              String?
+  maxGroupChatTitle           String?
   proxyType                   String?
   proxyHost                   String?
   proxyPort                   Int?

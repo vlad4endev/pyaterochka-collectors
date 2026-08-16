@@ -59,8 +59,7 @@ export function isUploadPhotoRef(ref: string): boolean {
   return ref.startsWith(UPLOAD_PREFIX);
 }
 
-export async function saveInvoicePhoto(file: { arrayBuffer: () => Promise<ArrayBuffer> }): Promise<string> {
-  const bytes = Buffer.from(await file.arrayBuffer());
+export async function saveInvoicePhotoBytes(bytes: Buffer): Promise<string> {
   if (bytes.length === 0) {
     throw new HttpError("Add kilograms or a photo");
   }
@@ -75,6 +74,19 @@ export async function saveInvoicePhoto(file: { arrayBuffer: () => Promise<ArrayB
   const name = `${randomUUID()}.${kind.ext}`;
   await writeFile(join(UPLOAD_DIR, name), bytes);
   return `${UPLOAD_PREFIX}${name}`;
+}
+
+export async function saveInvoicePhoto(file: { arrayBuffer: () => Promise<ArrayBuffer> }): Promise<string> {
+  return await saveInvoicePhotoBytes(Buffer.from(await file.arrayBuffer()));
+}
+
+export async function saveInvoicePhotoFromUrl(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new HttpError("Photo not found", 404);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return await saveInvoicePhotoBytes(bytes);
 }
 
 async function readLocalInvoice(ref: string): Promise<StoredPhoto> {

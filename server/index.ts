@@ -7,6 +7,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { app as api } from "./app";
 import { startBot, stopBot } from "./bot";
+import { startMaxBot, stopMaxBot } from "./maxBot";
 import { db } from "./db";
 import { ensureCurrentWeekPeriod } from "./lib/domain";
 import { startDailyReportReminders, stopDailyReportReminders } from "./lib/scheduler";
@@ -60,11 +61,12 @@ const server = serve({ fetch: root.fetch, port, hostname }, (info) => {
 });
 
 void startBot()
+  .then(() => startMaxBot())
   .then(() => {
     startDailyReportReminders();
   })
   .catch((err) => {
-    console.error("Failed to start Telegram bot", err);
+    console.error("Failed to start bots", err);
     startDailyReportReminders();
   });
 
@@ -82,6 +84,7 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`${signal}: shutting down`);
   stopDailyReportReminders();
   await stopBot();
+  await stopMaxBot();
   await db.$disconnect();
   server.close((err) => {
     if (err) {

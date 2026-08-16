@@ -15,6 +15,7 @@ export async function apiRequest<T>(
     method?: string;
     token?: string | null;
     telegramInitData?: string;
+    maxInitData?: string;
     body?: unknown;
   } = {},
 ): Promise<T> {
@@ -28,6 +29,9 @@ export async function apiRequest<T>(
   }
   if (options.telegramInitData) {
     headers.Authorization = `tma ${options.telegramInitData}`;
+  }
+  if (options.maxInitData) {
+    headers.Authorization = `max ${options.maxInitData}`;
   }
   const response = await fetch(`/api${path}`, {
     method: options.method ?? "GET",

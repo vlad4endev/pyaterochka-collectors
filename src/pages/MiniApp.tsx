@@ -11,6 +11,7 @@ import {
   initials,
   weekdayFromIso,
 } from "../lib/format";
+import { bootMaxWebApp, getMaxWebApp } from "../lib/max";
 import { bootTelegramWebApp } from "../lib/telegram";
 
 function haptic(kind: "success" | "error" | "warning" | "select") {
@@ -95,6 +96,7 @@ function IconCopy() {
 }
 
 export function MiniAppPage() {
+  const [platform, setPlatform] = useState<"telegram" | "max" | null>(null);
   const [initData, setInitData] = useState<string | null>(null);
   const [home, setHome] = useState<MiniHome | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -113,8 +115,19 @@ export function MiniAppPage() {
   const kgInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const webApp = bootTelegramWebApp();
-    setInitData(webApp?.initData ?? "");
+    const telegram = bootTelegramWebApp();
+    if (telegram) {
+      setPlatform("telegram");
+      setInitData(telegram.initData);
+      return;
+    }
+    const max = bootMaxWebApp();
+    if (max) {
+      setPlatform("max");
+      setInitData(max.initData);
+      return;
+    }
+    setInitData("");
   }, []);
 
   useEffect(() => {
@@ -124,7 +137,7 @@ export function MiniAppPage() {
     let cancelled = false;
     setError(null);
     api.miniapp
-      .home(initData)
+      .home(initData, platform ?? "telegram")
       .then((value) => {
         if (cancelled) {
           return;
@@ -217,12 +230,16 @@ export function MiniAppPage() {
     setError(null);
     setToast(null);
     try {
-      await api.miniapp.createEntry(initData, {
-        date,
-        kg: Number(kg) > 0 ? Number(kg) : undefined,
-        collectorId: showWho ? forId || forPerson?._id : undefined,
-        photo: photo ?? undefined,
-      });
+      await api.miniapp.createEntry(
+        initData,
+        {
+          date,
+          kg: Number(kg) > 0 ? Number(kg) : undefined,
+          collectorId: showWho ? forId || forPerson?._id : undefined,
+          photo: photo ?? undefined,
+        },
+        platform ?? "telegram",
+      );
       setKg("");
       setPhoto(null);
       setDayOpen(false);
@@ -249,7 +266,7 @@ export function MiniAppPage() {
     setError(null);
     setToast(null);
     try {
-      await api.miniapp.skip(initData, date);
+      await api.miniapp.skip(initData, date, platform ?? "telegram");
       setKg("");
       setPhoto(null);
       setDayOpen(false);
@@ -306,7 +323,7 @@ export function MiniAppPage() {
           <BrandLogo className="ma-logo" size={48} />
           <div className="ma-kicker">Пятёрка на бульваре</div>
           <h1 className="ma-title">Открой из Telegram</h1>
-          <p className="ma-lead">Нажми «Открыть приложение» в боте — подтянутся кг и сумма.</p>
+          <p className="ma-lead">Нажми «ВНЕСТИ» в боте — подтянутся кг и сумма.</p>
         </div>
       </div>
     );
@@ -351,7 +368,7 @@ export function MiniAppPage() {
           <BrandLogo className="ma-logo" size={40} />
           <div>
             <div className="ma-kicker">Пятёрка на бульваре</div>
-            <h1 className="ma-hello">{home.collector?.name ?? home.telegram.firstName}</h1>
+            <h1 className="ma-hello">{home.collector?.name ?? home.user.firstName}</h1>
           </div>
         </div>
         {home.period ? (
@@ -365,11 +382,16 @@ export function MiniAppPage() {
         <button
           type="button"
           className="ma-panel"
-          onClick={() => void copyText(home.telegram.id, "Telegram ID скопирован")}
+          onClick={() =>
+            void copyText(
+              home.user.id,
+              home.platform === "max" ? "MAX ID скопирован" : "Telegram ID скопирован",
+            )
+          }
         >
           <div className="ma-kicker">Нет в списке</div>
           <p className="ma-lead">Покажи организатору свой ID — нажми, чтобы скопировать.</p>
-          <div className="ma-id">{home.telegram.id}</div>
+          <div className="ma-id">{home.user.id}</div>
         </button>
       ) : null}
 

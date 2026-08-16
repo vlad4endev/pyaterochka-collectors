@@ -5,9 +5,50 @@ import { eachDateInclusive } from "./dates";
 import { HttpError } from "./errors";
 import { getPeriodSettlement, sumConfirmedKgForPayee } from "./payments";
 import { getMiniAppUrl, sendTelegramMessage } from "./telegram";
+import { sendMaxMessage } from "./max";
 
 function fmtShort(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+}
+
+export type GreetingCollectorStatus = "active" | "inactive" | "unknown";
+
+export const MINI_APP_BUTTON = "ВНЕСТИ";
+
+export function buildGreetingText(args: {
+  helloName: string;
+  hasApp: boolean;
+  status: GreetingCollectorStatus;
+  idLabel: string;
+  id: string;
+}): string {
+  const lines = [
+    `Привет, ${args.helloName}!`,
+    "",
+    "Это бот сборщиков «Пятёрка на бульваре».",
+  ];
+  if (args.hasApp) {
+    lines.push(
+      "",
+      `Нажми «${MINI_APP_BUTTON}» — откроется приложение: сумма за период, кг и фото ведомости.`,
+    );
+  }
+  if (args.status === "active") {
+    lines.push(
+      "",
+      args.hasApp
+        ? "Или просто пришли фото ведомости сюда в чат."
+        : "Пришли фото ведомости сюда в чат — оно уйдёт на проверку.",
+    );
+  } else if (args.status === "unknown") {
+    lines.push(
+      "",
+      `Если тебя ещё нет в списке, покажи организатору свой ${args.idLabel}: ${args.id}`,
+    );
+  } else {
+    lines.push("", "Ты скрыт в списке участников — напиши организатору.");
+  }
+  return lines.join("\n");
 }
 
 export async function buildSummary(db: PrismaClient, periodId: string) {
@@ -46,7 +87,7 @@ function appHint(): string[] {
   if (!getMiniAppUrl()) {
     return [];
   }
-  return ["", "Открой приложение в боте — там сумма за период и можно внести кг с фото."];
+  return ["", `Нажми «${MINI_APP_BUTTON}» в боте — там сумма за период и можно внести кг с фото.`];
 }
 
 function daysWord(count: number): string {
@@ -127,8 +168,8 @@ export async function sendSettlementInvoices(
       continue;
     }
     const collector = await requireCollector(db, row.collectorId);
-    if (!collector.telegramUserId) {
-      skipped.push({ collectorName: row.collectorName, reason: "Collector has no Telegram ID" });
+    if (!collector.telegramUserId && !collector.maxUserId) {
+      skipped.push({ collectorName: row.collectorName, reason: "Collector has no messenger ID" });
       continue;
     }
     const text = formatInvoice({
@@ -143,12 +184,17 @@ export async function sendSettlementInvoices(
       deadlineText: settings.deadlineText,
     });
     try {
-      await sendTelegramMessage(collector.telegramUserId, text);
+      if (collector.telegramUserId) {
+        await sendTelegramMessage(collector.telegramUserId, text);
+      }
+      if (collector.maxUserId) {
+        await sendMaxMessage(collector.maxUserId, text);
+      }
       sent += 1;
     } catch (err) {
       skipped.push({
         collectorName: row.collectorName,
-        reason: err instanceof HttpError ? err.message : "Failed to send Telegram message",
+        reason: err instanceof HttpError ? err.message : "Failed to send message",
       });
     }
   }
@@ -181,7 +227,12 @@ export async function buildReminder(
   periodId: string,
   collectorId: string,
   kind: ReminderKind,
-): Promise<{ text: string; chatId: string | null; collectorName: string }> {
+): Promise<{
+  text: string;
+  telegramChatId: string | null;
+  maxChatId: string | null;
+  collectorName: string;
+}> {
   const collector = await requireCollector(db, collectorId);
   const period = await requirePeriod(db, periodId);
 
@@ -195,7 +246,8 @@ export async function buildReminder(
     }
     return {
       text: formatReportReminder(collector.name, dates),
-      chatId: collector.telegramUserId,
+      telegramChatId: collector.telegramUserId,
+      maxChatId: collector.maxUserId,
       collectorName: collector.name,
     };
   }
@@ -223,7 +275,8 @@ export async function buildReminder(
       payTo: settings.payTo,
       deadlineText: settings.deadlineText,
     }),
-    chatId: collector.telegramUserId,
+    telegramChatId: collector.telegramUserId,
+    maxChatId: collector.maxUserId,
     collectorName: collector.name,
   };
 }
@@ -231,7 +284,8 @@ export async function buildReminder(
 export type OverdueReportReminder = {
   collectorId: string;
   collectorName: string;
-  chatId: string;
+  telegramChatId: string | null;
+  maxChatId: string | null;
   dates: string[];
   text: string;
 };
@@ -267,14 +321,15 @@ export async function listOverdueReportReminders(
   const byId = new Map(collectors.map((row) => [row.id, row]));
   const reminders: OverdueReportReminder[] = [];
   for (const [collectorId, row] of grouped) {
-    const chatId = byId.get(collectorId)?.telegramUserId;
-    if (!chatId) {
+    const collector = byId.get(collectorId);
+    if (!collector?.telegramUserId && !collector?.maxUserId) {
       continue;
     }
     reminders.push({
       collectorId,
       collectorName: row.name,
-      chatId,
+      telegramChatId: collector.telegramUserId,
+      maxChatId: collector.maxUserId,
       dates: row.dates,
       text: formatReportReminder(row.name, row.dates),
     });

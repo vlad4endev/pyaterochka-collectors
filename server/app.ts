@@ -44,8 +44,10 @@ import {
   skipCollectorDayInPeriod,
   skipOwnScheduledDay,
   submitCollectorReport,
+  type MiniAppPlatform,
 } from "./lib/miniapp";
 import { restartBot } from "./bot";
+import { restartMaxBot } from "./maxBot";
 import {
   assertGroupChatId,
   assertMiniAppUrl,
@@ -57,6 +59,14 @@ import {
   sendTelegramMessage,
   verifyTelegramInitData,
 } from "./lib/telegram";
+import {
+  fetchMaxBotIdentity,
+  fetchMaxChatTitle,
+  getMaxBotToken,
+  getMaxStatus,
+  sendMaxMessage,
+  verifyMaxInitData,
+} from "./lib/max";
 import { assertTelegramProxyConfig } from "./lib/telegramProxy";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -64,7 +74,8 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 type Variables = { session: AdminSession };
 
 type MiniVariables = {
-  telegramUserId: string;
+  platform: MiniAppPlatform;
+  userId: string;
   firstName: string;
   collector: Collector | null;
 };
@@ -145,6 +156,7 @@ authed.post("/collectors", async (c) => {
     name?: string;
     dayOfWeek?: number | null;
     telegramUserId?: string;
+    maxUserId?: string;
     active?: boolean;
   }>();
   const row = await db.collector.create({
@@ -152,6 +164,7 @@ authed.post("/collectors", async (c) => {
       name: normalizeName(body.name ?? ""),
       dayOfWeek: assertDayOfWeek(body.dayOfWeek ?? null),
       telegramUserId: normalizeOptionalTelegram(body.telegramUserId),
+      maxUserId: normalizeOptionalTelegram(body.maxUserId),
       active: body.active ?? true,
     },
   });
@@ -165,6 +178,7 @@ authed.patch("/collectors/:id", async (c) => {
     name?: string;
     dayOfWeek?: number | null;
     telegramUserId?: string;
+    maxUserId?: string;
     active?: boolean;
   }>();
   await db.collector.update({
@@ -174,6 +188,9 @@ authed.patch("/collectors/:id", async (c) => {
       ...(body.dayOfWeek !== undefined ? { dayOfWeek: assertDayOfWeek(body.dayOfWeek) } : {}),
       ...(body.telegramUserId !== undefined
         ? { telegramUserId: normalizeOptionalTelegram(body.telegramUserId) ?? null }
+        : {}),
+      ...(body.maxUserId !== undefined
+        ? { maxUserId: normalizeOptionalTelegram(body.maxUserId) ?? null }
         : {}),
       ...(body.active !== undefined ? { active: body.active } : {}),
     },
@@ -690,6 +707,63 @@ authed.post("/telegram/test", async (c) => {
   return c.json(null);
 });
 
+authed.get("/max", async (c) => {
+  return c.json(await getMaxStatus());
+});
+
+authed.put("/max/bot", async (c) => {
+  const body = await c.req.json<{ botToken?: string; miniAppUrl?: string }>();
+  const current = await getSettings(db);
+  let maxBotToken = current?.maxBotToken ?? null;
+  if (typeof body.botToken === "string" && body.botToken.trim().length > 0) {
+    await fetchMaxBotIdentity(body.botToken.trim());
+    maxBotToken = body.botToken.trim();
+  }
+  const miniAppUrl =
+    body.miniAppUrl === undefined
+      ? (current?.miniAppUrl ?? null)
+      : body.miniAppUrl.trim()
+        ? assertMiniAppUrl(body.miniAppUrl)
+        : null;
+  await patchDefaultSettings(db, { maxBotToken, miniAppUrl });
+  await restartMaxBot();
+  await restartBot();
+  return c.json(await getMaxStatus());
+});
+
+authed.post("/max/bot/clear", async (c) => {
+  await patchDefaultSettings(db, { maxBotToken: null });
+  await restartMaxBot();
+  return c.json(await getMaxStatus());
+});
+
+authed.put("/max/chat", async (c) => {
+  const body = await c.req.json<{ groupChatId?: string }>();
+  const groupChatId = assertGroupChatId(body.groupChatId ?? "");
+  const token = await getMaxBotToken();
+  const groupChatTitle = await fetchMaxChatTitle(token, groupChatId);
+  await patchDefaultSettings(db, { maxGroupChatId: groupChatId, maxGroupChatTitle: groupChatTitle });
+  return c.json(await getMaxStatus());
+});
+
+authed.post("/max/chat/unlink", async (c) => {
+  await patchDefaultSettings(db, { maxGroupChatId: null, maxGroupChatTitle: null });
+  return c.json(await getMaxStatus());
+});
+
+authed.post("/max/test", async (c) => {
+  const settings = await getSettings(db);
+  const chatId = settings?.maxGroupChatId;
+  if (!chatId) {
+    throw new HttpError("MAX group chat is not linked");
+  }
+  await sendMaxMessage(
+    chatId,
+    "Бот сборщиков привязан. Сообщения из админки будут приходить сюда.",
+  );
+  return c.json(null);
+});
+
 authed.get("/messages/summary", async (c) => {
   const periodId = c.req.query("periodId");
   if (!periodId) {
@@ -702,12 +776,18 @@ authed.post("/messages/summary/send", async (c) => {
   const body = await c.req.json<{ periodId?: string }>();
   const periodId = body.periodId ?? "";
   const settings = await getSettings(db);
-  const chatId = settings?.groupChatId;
-  if (!chatId) {
+  const telegramChatId = settings?.groupChatId;
+  const maxChatId = settings?.maxGroupChatId;
+  if (!telegramChatId && !maxChatId) {
     throw new HttpError("Group chat is not linked");
   }
   const summary = await buildSummary(db, periodId);
-  await sendTelegramMessage(chatId, summary.text);
+  if (telegramChatId) {
+    await sendTelegramMessage(telegramChatId, summary.text);
+  }
+  if (maxChatId) {
+    await sendMaxMessage(maxChatId, summary.text);
+  }
   return c.json(null);
 });
 
@@ -721,7 +801,7 @@ authed.get("/messages/remind", async (c) => {
   const reminder = await buildReminder(db, periodId, collectorId, kind);
   return c.json({
     text: reminder.text,
-    canSend: Boolean(reminder.chatId),
+    canSend: Boolean(reminder.telegramChatId || reminder.maxChatId),
   });
 });
 
@@ -735,22 +815,40 @@ authed.post("/messages/remind", async (c) => {
   const collectorId = body.collectorId ?? "";
   const kind = assertReminderKind(body.kind ?? "");
   const reminder = await buildReminder(db, periodId, collectorId, kind);
-  if (!reminder.chatId) {
-    throw new HttpError("Collector has no Telegram ID");
+  if (!reminder.telegramChatId && !reminder.maxChatId) {
+    throw new HttpError("Collector has no messenger ID");
   }
-  await sendTelegramMessage(reminder.chatId, reminder.text);
+  if (reminder.telegramChatId) {
+    await sendTelegramMessage(reminder.telegramChatId, reminder.text);
+  }
+  if (reminder.maxChatId) {
+    await sendMaxMessage(reminder.maxChatId, reminder.text);
+  }
   return c.json(null);
 });
 
 const mini = new Hono<{ Variables: MiniVariables }>();
 mini.use("*", async (c, next) => {
-  const header = c.req.header("Authorization");
-  const initData = header?.startsWith("tma ") ? header.slice(4) : undefined;
+  const header = c.req.header("Authorization") ?? "";
+  if (header.startsWith("max ")) {
+    const user = verifyMaxInitData(header.slice(4), await getMaxBotToken());
+    const collector = await db.collector.findFirst({
+      where: { maxUserId: String(user.id) },
+    });
+    c.set("platform", "max");
+    c.set("userId", String(user.id));
+    c.set("firstName", user.firstName);
+    c.set("collector", collector);
+    await next();
+    return;
+  }
+  const initData = header.startsWith("tma ") ? header.slice(4) : undefined;
   const user = verifyTelegramInitData(initData, await getBotToken());
   const collector = await db.collector.findFirst({
     where: { telegramUserId: String(user.id) },
   });
-  c.set("telegramUserId", String(user.id));
+  c.set("platform", "telegram");
+  c.set("userId", String(user.id));
   c.set("firstName", user.firstName);
   c.set("collector", collector);
   await next();
@@ -760,7 +858,11 @@ mini.get("/home", async (c) => {
   return c.json(
     await getMiniHome(
       db,
-      { id: Number(c.get("telegramUserId")), firstName: c.get("firstName") },
+      {
+        id: Number(c.get("userId")),
+        firstName: c.get("firstName"),
+        platform: c.get("platform"),
+      },
       Date.now(),
     ),
   );

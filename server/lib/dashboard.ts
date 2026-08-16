@@ -31,6 +31,7 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
     collectorName: string;
     date: string;
     hasTelegram: boolean;
+    hasMax: boolean;
   }> = [];
   const calendar = [];
 
@@ -67,6 +68,7 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
           collectorName: collector.name,
           date,
           hasTelegram: Boolean(collector.telegramUserId),
+          hasMax: Boolean(collector.maxUserId),
         });
       }
     }
