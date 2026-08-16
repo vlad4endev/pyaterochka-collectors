@@ -78,13 +78,6 @@ export function assertReminderKind(raw: string): ReminderKind {
   throw new HttpError("Invalid reminder kind");
 }
 
-function appHint(): string[] {
-  if (!getMiniAppUrl()) {
-    return [];
-  }
-  return ["", `Нажми «${MINI_APP_BUTTON}» в боте — там сумма за период и можно внести кг с фото.`];
-}
-
 function daysWord(count: number): string {
   const mod10 = count % 10;
   const mod100 = count % 100;
@@ -102,15 +95,12 @@ function formatReportReminder(name: string, dates: string[]): string {
   const first = dates[0] ?? "";
   const heading =
     dates.length === 1
-      ? `${name}, по графику не внесён отчёт за ${fmtShort(first)}.`
+      ? `${name}, по графику нет отчёта за ${fmtShort(first)}.`
       : `${name}, по графику нет отчётов за ${dates.length} ${daysWord(dates.length)}:`;
-  return [
-    heading,
-    ...(dates.length > 1 ? ["", listed] : []),
-    "",
-    "Пришли фото ведомости в бот или внеси кг в приложении.",
-    ...appHint(),
-  ].join("\n");
+  const action = getMiniAppUrl()
+    ? `Нажми «${MINI_APP_BUTTON}»: внеси кг и фото ведомости или отметь «Не брал», если не забирал.`
+    : "Пришли фото ведомости сюда в чат. Если не забирал — напиши организатору.";
+  return [heading, ...(dates.length > 1 ? ["", listed] : []), "", action].join("\n");
 }
 
 function formatInvoice(args: {
