@@ -33,13 +33,8 @@ export function buildGreetingText(args: {
       `Нажми «${MINI_APP_BUTTON}» — откроется приложение: сумма за период, кг и фото ведомости.`,
     );
   }
-  if (args.status === "active") {
-    lines.push(
-      "",
-      args.hasApp
-        ? "Или просто пришли фото ведомости сюда в чат."
-        : "Пришли фото ведомости сюда в чат — оно уйдёт на проверку.",
-    );
+  if (args.status === "active" && !args.hasApp) {
+    lines.push("", "Пришли фото ведомости сюда в чат — оно уйдёт на проверку.");
   } else if (args.status === "unknown") {
     lines.push(
       "",
