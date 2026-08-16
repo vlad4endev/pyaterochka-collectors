@@ -14,6 +14,30 @@ export function fmtShort(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 }
 
+const MONTH_SHORT = [
+  "янв",
+  "фев",
+  "мар",
+  "апр",
+  "мая",
+  "июн",
+  "июл",
+  "авг",
+  "сен",
+  "окт",
+  "ноя",
+  "дек",
+] as const;
+
+export function fmtHuman(iso: string): string {
+  const month = MONTH_SHORT[Number(iso.slice(5, 7)) - 1];
+  return `${Number(iso.slice(8, 10))} ${month ?? iso.slice(5, 7)}`;
+}
+
+export function formatMoney(value: number): string {
+  return Math.round(value).toLocaleString("ru-RU");
+}
+
 export function dayNumber(iso: string): number {
   return Number(iso.slice(8, 10));
 }
@@ -90,7 +114,9 @@ const ERROR_RU: Record<string, string> = {
   "Bank, payTo and deadlineText are required": "Заполните банк, карту и дедлайн",
   "windowStart must be before windowEnd": "Начало окна должно быть раньше конца",
   "Collector has no confirmed kg in this period": "У участника нет подтверждённых кг",
-  "No confirmed kilograms in this period": "Нет подтверждённых кг в этом периоде",
+  "No confirmed kilograms in this period": "Нет подтверждённых кг за прошлую неделю",
+  "Previous period is already settled": "Прошлая неделя уже закрыта — все оплатили",
+  "Previous period not found": "Прошлой недели в системе ещё нет — нечего считать",
   "BOT_TOKEN is not configured": "Токен бота не задан — откройте раздел Telegram в админке",
   "Invalid bot token": "Неверный токен бота — проверьте у @BotFather",
   "MINIAPP_URL must be an https URL": "URL мини-приложения должен начинаться с https://",
@@ -110,7 +136,8 @@ const ERROR_RU: Record<string, string> = {
   "Collector is inactive": "Ты скрыт в списке участников",
   "Date is outside the open period": "Дата не входит в текущий период",
   "creditedByCollectorId must be a different collector": "Засчитать можно только за другого участника",
-  "kg must be greater than 0": "Укажи килограммы больше нуля",
+  "kg must be greater than 0": "Укажите килограммы больше нуля",
+  "storeTotalRub must be greater than 0": "Укажите сумму из счёта магазина",
   "Add kilograms or a photo": "Укажи кг или загрузи фото ведомости",
   "Photo is too large": "Фото слишком большое — до 8 МБ",
   "Unsupported photo type": "Нужно фото: JPG, PNG или HEIC",
@@ -119,5 +146,17 @@ const ERROR_RU: Record<string, string> = {
 
 export function errorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : "Неизвестная ошибка";
+  const settlementMismatch = raw.match(
+    /^Settlement mismatch: (.+) kg \/ (.+) rub vs store (.+) kg \/ (.+) rub$/,
+  );
+  if (settlementMismatch) {
+    return `Не совпадает со счётом магазина: у участников ${settlementMismatch[1]} кг / ${settlementMismatch[2]} ₽, в счёте ${settlementMismatch[3]} кг / ${settlementMismatch[4]} ₽`;
+  }
+  const storeMismatch = raw.match(
+    /^Store invoice mismatch: (.+) kg × (\d+) = (.+), got (.+)$/,
+  );
+  if (storeMismatch) {
+    return `В счёте магазина кг и сумма не сходятся: ${storeMismatch[1]} кг × ${storeMismatch[2]} = ${storeMismatch[3]} ₽, указано ${storeMismatch[4]} ₽`;
+  }
   return ERROR_RU[raw] ?? raw;
 }

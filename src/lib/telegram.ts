@@ -16,8 +16,8 @@ export function bootTelegramWebApp(): TelegramWebApp | null {
   }
   webApp.ready();
   webApp.expand();
-  webApp.setHeaderColor("#ffffff");
-  webApp.setBackgroundColor("#f5f5f7");
+  webApp.setHeaderColor("#161c18");
+  webApp.setBackgroundColor("#f3f0e8");
   document.documentElement.classList.add("tg-miniapp");
   document.body.classList.add("tg-miniapp");
   return webApp;

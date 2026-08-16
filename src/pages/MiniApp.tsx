@@ -5,25 +5,20 @@ import {
   DAY_SHORT,
   errorMessage,
   formatKg,
-  formatRub,
-  fmtShort,
-  periodLabel,
+  formatMoney,
+  fmtHuman,
+  initials,
   weekdayFromIso,
 } from "../lib/format";
 import { bootTelegramWebApp } from "../lib/telegram";
 
-function statusLabel(status: "pending" | "confirmed" | "rejected"): string {
-  if (status === "confirmed") {
-    return "ок";
+function haptic(kind: "success" | "error" | "warning" | "select") {
+  const feedback = window.Telegram?.WebApp?.HapticFeedback;
+  if (kind === "select") {
+    feedback?.selectionChanged();
+    return;
   }
-  if (status === "pending") {
-    return "проверка";
-  }
-  return "нет";
-}
-
-function haptic(kind: "success" | "error" | "warning") {
-  window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred(kind);
+  feedback?.notificationOccurred(kind);
 }
 
 function defaultForId(home: MiniHome, date: string): string {
@@ -45,6 +40,44 @@ function firstName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
+function isMyScheduledDay(home: MiniHome, date: string): boolean {
+  const day = home.days.find((item) => item.date === date);
+  return Boolean(
+    home.collector &&
+      home.collector.dayOfWeek !== null &&
+      day &&
+      day.weekday === home.collector.dayOfWeek,
+  );
+}
+
+function statusCopy(status: "pending" | "confirmed" | "rejected"): string {
+  if (status === "confirmed") {
+    return "принято";
+  }
+  if (status === "pending") {
+    return "проверка";
+  }
+  return "отклонено";
+}
+
+function IconCam() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="M4 8h3l2-2.4h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+      <circle cx="12" cy="13.2" r="3.2" />
+    </svg>
+  );
+}
+
+function IconCopy() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="8" y="8" width="11" height="12" rx="2" />
+      <path d="M5 16V6a2 2 0 0 1 2-2h8" />
+    </svg>
+  );
+}
+
 export function MiniAppPage() {
   const [initData, setInitData] = useState<string | null>(null);
   const [home, setHome] = useState<MiniHome | undefined>(undefined);
@@ -56,8 +89,12 @@ export function MiniAppPage() {
   const [forId, setForId] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [dayOpen, setDayOpen] = useState(false);
   const [epoch, setEpoch] = useState(0);
-  const photoInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
+  const galleryInput = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const kgInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const webApp = bootTelegramWebApp();
@@ -85,6 +122,9 @@ export function MiniAppPage() {
                 ? value.today.date
                 : (value.days[0]?.date ?? value.today.date);
           setForId((prev) => (current ? prev : defaultForId(value, next)));
+          if (!current && !isMyScheduledDay(value, next)) {
+            setDayOpen(true);
+          }
           return next;
         });
       })
@@ -108,11 +148,16 @@ export function MiniAppPage() {
     return () => URL.revokeObjectURL(url);
   }, [photo]);
 
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setToast(null), 2800);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   const selectedDay = home?.days.find((day) => day.date === date);
-  const myDay =
-    Boolean(home?.collector) &&
-    home?.collector?.dayOfWeek !== null &&
-    selectedDay?.weekday === home?.collector?.dayOfWeek;
+  const myDay = Boolean(home && date && isMyScheduledDay(home, date));
   const showWho = Boolean(
     home?.collector?.active &&
       home.period?.status === "open" &&
@@ -127,13 +172,26 @@ export function MiniAppPage() {
     home?.period && Number.isFinite(kgPreview) && kgPreview > 0
       ? kgPreview * home.period.rate
       : null;
+  const todaySelected = Boolean(home && date === home.today.date);
+
+  function pickDate(next: string, opts?: { scroll?: boolean }) {
+    haptic("select");
+    setDate(next);
+    if (home) {
+      setForId(defaultForId(home, next));
+      if (!isMyScheduledDay(home, next)) {
+        setDayOpen(true);
+      }
+    }
+    if (opts?.scroll) {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.setTimeout(() => kgInput.current?.focus(), 280);
+    }
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!initData || !home?.collector) {
-      return;
-    }
-    if (!canSubmit) {
+    if (!initData || !home?.collector || !canSubmit) {
       return;
     }
     setBusy(true);
@@ -148,10 +206,11 @@ export function MiniAppPage() {
       });
       setKg("");
       setPhoto(null);
+      setDayOpen(false);
       haptic("success");
       setToast(
         showWho && forPerson
-          ? `Записано на ${firstName(forPerson.name)} — на проверке`
+          ? `На ${firstName(forPerson.name)} · на проверке`
           : "Отправлено на проверку",
       );
       setEpoch((value) => value + 1);
@@ -163,53 +222,59 @@ export function MiniAppPage() {
     }
   }
 
-  function pickDate(next: string) {
-    setDate(next);
-    if (home) {
-      setForId(defaultForId(home, next));
-    }
-  }
-
-  async function copyPayTo() {
-    if (!home?.settings?.payTo) {
-      return;
-    }
+  async function copyText(value: string, ok: string) {
     try {
-      await navigator.clipboard.writeText(home.settings.payTo);
-      setToast("Номер карты скопирован");
+      await navigator.clipboard.writeText(value);
       haptic("success");
+      setToast(ok);
     } catch {
       setError("Не удалось скопировать");
     }
   }
 
-  if (initData === null) {
-    return <div className="loading ma-screen">Открываем…</div>;
+  function submitLabel(): string {
+    if (busy) {
+      return "Отправляем";
+    }
+    if (showWho && forPerson) {
+      return Number(kg) > 0
+        ? `Отправить ${formatKg(Number(kg))} кг за ${firstName(forPerson.name)}`
+        : `Отправить фото за ${firstName(forPerson.name)}`;
+    }
+    if (Number(kg) > 0) {
+      return `Отправить ${formatKg(Number(kg))} кг`;
+    }
+    return "Отправить фото";
+  }
+
+  if (initData === null || (home === undefined && !error && initData)) {
+    return (
+      <div className="miniapp">
+        <div className="ma-skel-hero" />
+        <div className="ma-skel" />
+        <div className="ma-skel short" />
+      </div>
+    );
   }
 
   if (!initData) {
     return (
       <div className="miniapp">
-        <div className="card">
-          <h2>Открой через Telegram</h2>
-          <div className="h2-sub" style={{ marginBottom: 0 }}>
-            Нажми «Открыть приложение» в боте — так подтянутся твои килограммы и сумма.
-          </div>
+        <div className="ma-panel">
+          <div className="ma-kicker">Пятёрка на бульваре</div>
+          <h1 className="ma-title">Открой из Telegram</h1>
+          <p className="ma-lead">Нажми «Открыть приложение» в боте — подтянутся кг и сумма.</p>
         </div>
       </div>
     );
   }
 
-  if (home === undefined && !error) {
-    return <div className="loading ma-screen">Загрузка…</div>;
-  }
-
   if (!home) {
     return (
       <div className="miniapp">
-        <div className="card">
-          <h2>Не удалось открыть</h2>
-          <div className="err">{error}</div>
+        <div className="ma-panel">
+          <h1 className="ma-title">Не открылось</h1>
+          <p className="ma-lead">{error}</p>
         </div>
       </div>
     );
@@ -217,122 +282,183 @@ export function MiniAppPage() {
 
   const periodOpen = home.period?.status === "open";
   const whoOptions: MiniPerson[] = home.others;
+  const contextLabel = todaySelected
+    ? myDay
+      ? `Сегодня, ${DAY_SHORT[weekdayFromIso(date)]}`
+      : `Сегодня · не твой день`
+    : `${DAY_SHORT[weekdayFromIso(date)]} ${fmtHuman(date)}`;
+  const contextWho = myDay ? "запишем на тебя" : forPerson ? `за ${firstName(forPerson.name)}` : "запишем на тебя";
 
   return (
     <div className="miniapp">
-      <div className="ma-top">
+      <header className="ma-head">
         <div>
-          <h1 className="page-title">{home.collector?.name ?? home.telegram.firstName}</h1>
-          <div className="page-sub">
-            {home.period
-              ? periodLabel(home.period.startDate, home.period.endDate)
-              : "Пятёрка на бульваре"}
-          </div>
+          <div className="ma-kicker">Пятёрка на бульваре</div>
+          <h1 className="ma-hello">{home.collector?.name ?? home.telegram.firstName}</h1>
         </div>
-      </div>
+        {home.period ? (
+          <div className="ma-week">
+            {fmtHuman(home.period.startDate)} – {fmtHuman(home.period.endDate)}
+          </div>
+        ) : null}
+      </header>
 
       {!home.collector ? (
-        <div className="card">
-          <h2>Тебя ещё нет в списке</h2>
-          <div className="h2-sub" style={{ marginBottom: 0 }}>
-            Покажи организатору свой Telegram ID: <strong>{home.telegram.id}</strong>
-          </div>
-        </div>
+        <button
+          type="button"
+          className="ma-panel"
+          onClick={() => void copyText(home.telegram.id, "Telegram ID скопирован")}
+        >
+          <div className="ma-kicker">Нет в списке</div>
+          <p className="ma-lead">Покажи организатору свой ID — нажми, чтобы скопировать.</p>
+          <div className="ma-id">{home.telegram.id}</div>
+        </button>
       ) : null}
 
       {home.collector && !home.collector.active ? (
-        <div className="card">
-          <h2>Ты скрыт в списке</h2>
-          <div className="h2-sub" style={{ marginBottom: 0 }}>
-            Напиши организатору, чтобы снова появиться в графике.
-          </div>
+        <div className="ma-panel">
+          <div className="ma-kicker">Скрыт в графике</div>
+          <p className="ma-lead">Напиши организатору, чтобы снова появиться в списке.</p>
         </div>
       ) : null}
 
       {home.me ? (
-        <div className="ma-hero">
-          <div className="ma-hero-label">К переводу за период</div>
-          <div className="ma-amount">{formatRub(home.me.amountRub)} ₽</div>
-          <div className="ma-hero-meta">
-            {formatKg(home.me.kg)} кг
-            {home.period ? ` × ${formatRub(home.period.rate)} ₽` : ""}
-          </div>
-          <div className="ma-hero-row">
+        <section className="ma-hero">
+          <div className="ma-hero-top">
+            <span>К переводу</span>
             {home.me.paidAt ? (
-              <span className="badge ok">перевёл</span>
+              <span className="ma-pill ok">перевёл</span>
             ) : home.me.kg > 0 ? (
-              <span className="badge warn">ещё не перевёл</span>
+              <span className="ma-pill wait">ещё нет</span>
             ) : (
-              <span className="badge info">пока 0 кг</span>
+              <span className="ma-pill">0 кг</span>
             )}
+          </div>
+          <div className="ma-amount">{formatMoney(home.me.amountRub)} ₽</div>
+          <div className="ma-hero-meta">
+            <span>
+              {formatKg(home.me.kg)} кг
+              {home.period ? ` × ${formatMoney(home.period.rate)} ₽` : ""}
+            </span>
             {home.collector?.dayOfWeek !== null && home.collector?.dayOfWeek !== undefined ? (
-              <span className="ma-slot">твой день — {DAY_NAMES[home.collector.dayOfWeek]}</span>
+              <span>{DAY_NAMES[home.collector.dayOfWeek]}</span>
             ) : null}
           </div>
           {home.settings ? (
-            <button type="button" className="ma-pay" onClick={() => void copyPayTo()}>
+            <button
+              type="button"
+              className="ma-pay"
+              onClick={() => void copyText(home.settings?.payTo ?? "", "Карта скопирована")}
+            >
               <span>
-                {home.settings.bank} · {home.settings.payTo}
+                <strong>{home.settings.payTo}</strong>
+                <small>
+                  {home.settings.bank} · {home.settings.deadlineText}
+                </small>
               </span>
-              <span className="ma-pay-hint">{home.settings.deadlineText} · нажми, чтобы скопировать</span>
+              <IconCopy />
             </button>
           ) : null}
-        </div>
-      ) : home.period ? (
-        <div className="card">
-          <h2>Период открыт</h2>
-          <div className="h2-sub" style={{ marginBottom: 0 }}>
-            {periodLabel(home.period.startDate, home.period.endDate)}
-          </div>
-        </div>
+        </section>
       ) : (
-        <div className="card">
-          <h2>Период ещё не открыт</h2>
-          <div className="h2-sub" style={{ marginBottom: 0 }}>
-            Обычно неделя появляется сама с понедельника.
-          </div>
-        </div>
+        <section className="ma-panel">
+          <div className="ma-kicker">Период</div>
+          <p className="ma-lead">
+            {home.period ? "Неделя открыта — можно сдавать." : "Неделя ещё не открыта. Обычно с понедельника."}
+          </p>
+        </section>
       )}
 
+      {home.me && home.me.gaps.length > 0 ? (
+        <button
+          type="button"
+          className="ma-alert"
+          onClick={() => {
+            const first = home.me?.gaps[0]?.date;
+            if (first) {
+              pickDate(first, { scroll: true });
+            }
+          }}
+        >
+          <span>
+            Пропуск: {home.me.gaps.map((gap) => fmtHuman(gap.date)).join(", ")}
+          </span>
+          <span>внести</span>
+        </button>
+      ) : null}
+
       {home.collector?.active && home.period && periodOpen ? (
-        <form className="card ma-form" onSubmit={(event) => void onSubmit(event)}>
-          <h2>Внести</h2>
-          <div className="h2-sub">
-            Фото ведомости и кг. Если взял чужой день — сначала день и за кого.
+        <form className="ma-sheet" ref={formRef} onSubmit={(event) => void onSubmit(event)}>
+          <div className="ma-sheet-head">
+            <div>
+              <div className="ma-kicker">Сдать</div>
+              <h2>Ведомость и кг</h2>
+            </div>
+            <button
+              type="button"
+              className="ma-ghost"
+              onClick={() => {
+                haptic("select");
+                setDayOpen((value) => !value);
+              }}
+            >
+              {dayOpen ? "Готово" : "Другой день"}
+            </button>
           </div>
 
-          <div className="field">
-            <label>День</label>
-            <div className="ma-chips">
+          <button
+            type="button"
+            className="ma-context"
+            onClick={() => {
+              haptic("select");
+              setDayOpen((value) => !value);
+            }}
+          >
+            <span>
+              <strong>{contextLabel}</strong>
+              <small>{contextWho}</small>
+            </span>
+            <span className="ma-chevron">{dayOpen ? "↑" : "↓"}</span>
+          </button>
+
+          {dayOpen ? (
+            <div className="ma-days" role="listbox" aria-label="День">
               {home.days.map((day) => {
                 const mine =
                   home.collector?.dayOfWeek !== null && day.weekday === home.collector?.dayOfWeek;
                 const other = day.scheduled.find((person) => person._id !== home.collector?._id);
+                const selected = date === day.date;
                 return (
                   <button
                     type="button"
                     key={day.date}
-                    className={`ma-chip${date === day.date ? " active" : ""}${day.date === home.today.date ? " today" : ""}`}
+                    role="option"
+                    aria-selected={selected}
+                    className={`ma-day${selected ? " on" : ""}${day.date === home.today.date ? " now" : ""}`}
                     onClick={() => pickDate(day.date)}
                   >
-                    <span className="ma-chip-d">{DAY_SHORT[day.weekday]}</span>
-                    <span className="ma-chip-n">{fmtShort(day.date)}</span>
-                    <span className="ma-chip-who">{mine ? "ты" : other ? firstName(other.name) : " "}</span>
+                    <em>{DAY_SHORT[day.weekday]}</em>
+                    <strong>{fmtHuman(day.date)}</strong>
+                    <small>{mine ? "ты" : other ? firstName(other.name) : "—"}</small>
                   </button>
                 );
               })}
             </div>
-          </div>
+          ) : null}
 
           {showWho ? (
-            <div className="field">
-              <label>За кого взял</label>
-              <div className="ma-chips ma-chips-wrap">
+            <div className="ma-who">
+              <div className="ma-kicker">За кого взял</div>
+              <div className="ma-people">
                 <button
                   type="button"
-                  className={`ma-chip${forId === "" ? " active" : ""}`}
-                  onClick={() => setForId("")}
+                  className={`ma-person${forId === "" ? " on" : ""}`}
+                  onClick={() => {
+                    haptic("select");
+                    setForId("");
+                  }}
                 >
+                  <span className="ma-ava me">Я</span>
                   Себе
                 </button>
                 {whoOptions.map((person) => {
@@ -341,57 +467,27 @@ export function MiniAppPage() {
                     <button
                       type="button"
                       key={person._id}
-                      className={`ma-chip${forId === person._id ? " active" : ""}`}
-                      onClick={() => setForId(person._id)}
+                      className={`ma-person${forId === person._id ? " on" : ""}`}
+                      onClick={() => {
+                        haptic("select");
+                        setForId(person._id);
+                      }}
                     >
+                      <span className={`ma-ava${scheduled ? " slot" : ""}`}>{initials(person.name)}</span>
                       {firstName(person.name)}
-                      {scheduled ? <span className="ma-chip-mark">день</span> : null}
                     </button>
                   );
                 })}
               </div>
-              <div className="h2-sub" style={{ marginTop: 8, marginBottom: 0 }}>
-                {forPerson
-                  ? `Кг пойдут ${firstName(forPerson.name)}, ты будешь в «от».`
-                  : "Запишу на тебя."}
-              </div>
             </div>
           ) : null}
 
-          <div className="field">
-            <label htmlFor="maPhoto">Ведомость</label>
-            <input
-              id="maPhoto"
-              ref={photoInput}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="ma-file"
-              onChange={(event) => setPhoto(event.target.files?.[0] ?? null)}
-            />
-            <button
-              type="button"
-              className={`ma-photo${photoUrl ? " has" : ""}`}
-              onClick={() => photoInput.current?.click()}
-            >
-              {photoUrl ? (
-                <img src={photoUrl} alt="Ведомость" />
-              ) : (
-                <span>Сфотографировать или выбрать фото</span>
-              )}
-            </button>
-            {photo ? (
-              <button type="button" className="ma-link" onClick={() => setPhoto(null)}>
-                Убрать фото
-              </button>
-            ) : null}
-          </div>
-
-          <div className="field">
-            <label htmlFor="maKg">Килограммы</label>
-            <div className="ma-kg-wrap">
+          <label className="ma-kg-block" htmlFor="maKg">
+            <span className="ma-kicker">Килограммы</span>
+            <div className="ma-kg-line">
               <input
                 id="maKg"
+                ref={kgInput}
                 className="ma-kg"
                 type="number"
                 min="0"
@@ -404,62 +500,92 @@ export function MiniAppPage() {
               <span>кг</span>
             </div>
             {amountPreview !== null ? (
-              <div className="h2-sub" style={{ marginTop: 8, marginBottom: 0 }}>
-                ≈ {formatRub(amountPreview)} ₽ к сумме
+              <span className="ma-plus">+ {formatMoney(amountPreview)} ₽ к сумме</span>
+            ) : (
+              <span className="ma-plus dim">Можно только фото — кг проставит организатор</span>
+            )}
+          </label>
+
+          <div className="ma-photo-block">
+            <span className="ma-kicker">Ведомость</span>
+            <input
+              ref={cameraInput}
+              className="ma-file"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => setPhoto(event.target.files?.[0] ?? null)}
+            />
+            <input
+              ref={galleryInput}
+              className="ma-file"
+              type="file"
+              accept="image/*"
+              onChange={(event) => setPhoto(event.target.files?.[0] ?? null)}
+            />
+            {photoUrl ? (
+              <div className="ma-preview">
+                <img src={photoUrl} alt="Ведомость" />
+                <button type="button" className="ma-preview-x" onClick={() => setPhoto(null)}>
+                  Убрать
+                </button>
               </div>
             ) : (
-              <div className="h2-sub" style={{ marginTop: 8, marginBottom: 0 }}>
-                Можно только фото — кг потом проставит организатор.
+              <div className="ma-photo-actions">
+                <button type="button" className="ma-shot" onClick={() => cameraInput.current?.click()}>
+                  <IconCam />
+                  Снять
+                </button>
+                <button type="button" className="ma-shot alt" onClick={() => galleryInput.current?.click()}>
+                  Из галереи
+                </button>
               </div>
             )}
           </div>
 
-          <button className="btn-primary" disabled={busy || !canSubmit}>
-            {busy ? "Отправляем…" : "Отправить на проверку"}
-          </button>
+          <div className="ma-dock">
+            <button className="ma-go" disabled={busy || !canSubmit}>
+              {submitLabel()}
+            </button>
+          </div>
         </form>
       ) : null}
 
-      {home.me && home.me.gaps.length > 0 ? (
-        <div className="card">
-          <h2>
-            Пропуски <span className="badge info">{home.me.gaps.length}</span>
-          </h2>
-          <div className="h2-sub">Нажми день, чтобы сразу внести</div>
-          {home.me.gaps.map((gap) => (
-            <button type="button" className="ma-gap" key={gap.date} onClick={() => pickDate(gap.date)}>
-              <span>
-                {fmtShort(gap.date)} · {DAY_SHORT[weekdayFromIso(gap.date)]}
-              </span>
-              <span className="d">внести</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-
       {home.me ? (
-        <div className="card">
-          <h2>Записи</h2>
+        <section className="ma-panel ma-log">
+          <div className="ma-kicker">Записи</div>
           {home.me.entries.length === 0 ? (
-            <div className="empty">Пока пусто</div>
+            <p className="ma-lead">Пока пусто — сдай первую ведомость.</p>
           ) : (
-            home.me.entries.map((entry) => (
-              <div className="gap-item" key={entry._id}>
-                <span>
-                  {fmtShort(entry.date)}
-                  {entry.kg !== undefined ? ` · ${formatKg(entry.kg)} кг` : entry.hasPhoto ? " · фото" : ""}
-                  {entry.creditedForName ? ` · за ${firstName(entry.creditedForName)}` : ""}
-                  {entry.creditedByName ? ` · от ${firstName(entry.creditedByName)}` : ""}
-                </span>
-                <span className={`ma-st ${entry.status}`}>{statusLabel(entry.status)}</span>
-              </div>
-            ))
+            <ul>
+              {home.me.entries.map((entry) => (
+                <li key={entry._id}>
+                  <span>
+                    <strong>
+                      {fmtHuman(entry.date)}
+                      {entry.kg !== undefined
+                        ? ` · ${formatKg(entry.kg)} кг`
+                        : entry.hasPhoto
+                          ? " · фото"
+                          : ""}
+                    </strong>
+                    {entry.creditedForName ? (
+                      <small>за {firstName(entry.creditedForName)}</small>
+                    ) : null}
+                    {entry.creditedByName ? (
+                      <small>от {firstName(entry.creditedByName)}</small>
+                    ) : null}
+                  </span>
+                  <em className={entry.status}>{statusCopy(entry.status)}</em>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+        </section>
       ) : null}
 
-      {error ? <div className="err">{error}</div> : null}
-      {toast ? <div className="toast">{toast}</div> : null}
+      {error ? <div className="ma-toast bad">{error}</div> : null}
+      {toast ? <div className="ma-toast">{toast}</div> : null}
     </div>
   );
 }

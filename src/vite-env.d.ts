@@ -19,6 +19,7 @@ type TelegramWebApp = {
   HapticFeedback?: {
     notificationOccurred: (type: "error" | "success" | "warning") => void;
     impactOccurred: (style: "light" | "medium" | "heavy") => void;
+    selectionChanged: () => void;
   };
 };
 
