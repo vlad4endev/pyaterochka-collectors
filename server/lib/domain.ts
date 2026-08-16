@@ -87,6 +87,11 @@ type SettingsPatch = {
   miniAppUrl?: string | null;
   groupChatId?: string | null;
   groupChatTitle?: string | null;
+  proxyType?: string | null;
+  proxyHost?: string | null;
+  proxyPort?: number | null;
+  proxyUsername?: string | null;
+  proxyPassword?: string | null;
 };
 
 export async function patchDefaultSettings(
@@ -107,6 +112,11 @@ export async function patchDefaultSettings(
         miniAppUrl: data.miniAppUrl,
         groupChatId: data.groupChatId,
         groupChatTitle: data.groupChatTitle,
+        proxyType: data.proxyType,
+        proxyHost: data.proxyHost,
+        proxyPort: data.proxyPort,
+        proxyUsername: data.proxyUsername,
+        proxyPassword: data.proxyPassword,
       },
     });
   }

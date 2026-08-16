@@ -112,6 +112,14 @@ export type Settings = {
   groupChatId?: string;
 };
 
+export type TelegramPathCheck = {
+  ok: boolean;
+  via: "proxy" | "direct";
+  latencyMs: number;
+  error: "timeout" | "refused" | "host_not_found" | "auth" | "reset" | "unreachable" | null;
+  checkedAt: number;
+};
+
 export type TelegramStatus = {
   botTokenSet: boolean;
   botTokenSource: "database" | "env" | null;
@@ -120,6 +128,14 @@ export type TelegramStatus = {
   miniAppUrl: string | null;
   groupChatId: string | null;
   groupChatTitle: string | null;
+  proxyConfigured: boolean;
+  proxySource: "database" | "env" | null;
+  proxyType: "http" | "socks5" | null;
+  proxyHost: string | null;
+  proxyPort: number | null;
+  proxyUsername: string | null;
+  proxyPasswordSet: boolean;
+  pathCheck: TelegramPathCheck | null;
 };
 
 export type MiniEntry = {
@@ -344,6 +360,18 @@ export const api = {
       }),
     unlinkChat: (token: string) =>
       apiRequest<TelegramStatus>("/telegram/chat/unlink", { method: "POST", token }),
+    saveProxy: (
+      token: string,
+      body: {
+        type: "http" | "socks5" | "none";
+        host?: string;
+        port?: number | "";
+        username?: string;
+        password?: string;
+      },
+    ) => apiRequest<TelegramStatus>("/telegram/proxy", { method: "PUT", token, body }),
+    checkPath: (token: string) =>
+      apiRequest<TelegramStatus>("/telegram/proxy/check", { method: "POST", token }),
     test: (token: string) =>
       apiRequest<null>("/telegram/test", { method: "POST", token }),
   },

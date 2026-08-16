@@ -25,17 +25,22 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
+    "@maxhub/max-bot-api": "^0.2.5",
     "@prisma/client": "^6.19.3",
     "dotenv": "^17.4.2",
     "grammy": "^1.45.1",
     "hono": "^4.13.2",
+    "https-proxy-agent": "^9.1.0",
+    "node-fetch": "^2.7.0",
     "prisma": "^6.19.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "socks-proxy-agent": "^10.1.0",
     "tsx": "^4.23.12"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@types/node-fetch": "^2.6.13",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",

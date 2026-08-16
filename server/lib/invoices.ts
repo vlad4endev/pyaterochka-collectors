@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { HttpError } from "./errors";
-import { getBotToken } from "./telegram";
+import { getBotToken, telegramApiFetch } from "./telegram";
 
 const UPLOAD_PREFIX = "upload:";
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -92,7 +92,7 @@ async function readLocalInvoice(ref: string): Promise<StoredPhoto> {
 
 async function fetchTelegramPhoto(fileId: string): Promise<StoredPhoto> {
   const token = await getBotToken();
-  const metaResponse = await fetch(
+  const metaResponse = await telegramApiFetch(
     `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
   );
   const meta: unknown = await metaResponse.json().catch(() => null);
@@ -110,7 +110,7 @@ async function fetchTelegramPhoto(fileId: string): Promise<StoredPhoto> {
     throw new HttpError("Photo not found", 404);
   }
   const filePath = meta.result.file_path;
-  const bin = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  const bin = await telegramApiFetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
   if (!bin.ok) {
     throw new HttpError("Photo not found", 404);
   }

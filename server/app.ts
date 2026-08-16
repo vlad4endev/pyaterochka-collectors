@@ -53,9 +53,11 @@ import {
   fetchChatTitle,
   getBotToken,
   getTelegramStatus,
+  checkTelegramPath,
   sendTelegramMessage,
   verifyTelegramInitData,
 } from "./lib/telegram";
+import { assertTelegramProxyConfig } from "./lib/telegramProxy";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -576,13 +578,88 @@ authed.put("/telegram/bot", async (c) => {
         ? assertMiniAppUrl(body.miniAppUrl)
         : null;
   await patchDefaultSettings(db, { botToken, miniAppUrl });
-  await restartBot();
+  try {
+    await restartBot();
+  } catch (err) {
+    console.error("Bot restart failed", err);
+  }
+  await checkTelegramPath();
   return c.json(await getTelegramStatus());
 });
 
 authed.post("/telegram/bot/clear", async (c) => {
   await patchDefaultSettings(db, { botToken: null });
-  await restartBot();
+  try {
+    await restartBot();
+  } catch (err) {
+    console.error("Bot restart after token clear failed", err);
+  }
+  await checkTelegramPath();
+  return c.json(await getTelegramStatus());
+});
+
+authed.put("/telegram/proxy", async (c) => {
+  const body = await c.req.json<{
+    type?: string;
+    host?: string;
+    port?: number | string;
+    username?: string;
+    password?: string;
+  }>();
+  const current = await getSettings(db);
+  const type = typeof body.type === "string" ? body.type.trim() : "";
+  if (!type || type === "none") {
+    await patchDefaultSettings(db, {
+      proxyType: null,
+      proxyHost: null,
+      proxyPort: null,
+      proxyUsername: null,
+      proxyPassword: null,
+    });
+    try {
+      await restartBot();
+    } catch (err) {
+      console.error("Bot restart after proxy disable failed", err);
+    }
+    await checkTelegramPath();
+    return c.json(await getTelegramStatus());
+  }
+  const portRaw = body.port;
+  const port =
+    typeof portRaw === "number"
+      ? portRaw
+      : typeof portRaw === "string" && portRaw.trim().length > 0
+        ? Number(portRaw.trim())
+        : Number.NaN;
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const incomingPassword = typeof body.password === "string" ? body.password : "";
+  const password =
+    incomingPassword.length > 0 ? incomingPassword : (current?.proxyPassword ?? null);
+  const config = assertTelegramProxyConfig({
+    type,
+    host: typeof body.host === "string" ? body.host : "",
+    port,
+    username: username || null,
+    password: username ? password : null,
+  });
+  await patchDefaultSettings(db, {
+    proxyType: config.type,
+    proxyHost: config.host,
+    proxyPort: config.port,
+    proxyUsername: config.username,
+    proxyPassword: config.password,
+  });
+  try {
+    await restartBot();
+  } catch (err) {
+    console.error("Bot restart after proxy change failed", err);
+  }
+  await checkTelegramPath();
+  return c.json(await getTelegramStatus());
+});
+
+authed.post("/telegram/proxy/check", async (c) => {
+  await checkTelegramPath();
   return c.json(await getTelegramStatus());
 });
 

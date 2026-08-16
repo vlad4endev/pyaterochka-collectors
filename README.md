@@ -35,7 +35,7 @@ npm run prod:up
 После подъёма:
 
 1. Откройте админку по https, войдите с `ADMIN_PASSWORD`.
-2. Раздел **Telegram**: токен бота и URL Mini App.
+2. Раздел **Telegram**: при необходимости HTTP/SOCKS5 прокси, токен бота и URL Mini App.
 3. Добавьте бота в группу и отправьте `/bind`.
 4. В @BotFather: Menu Button → тот же https URL.
 

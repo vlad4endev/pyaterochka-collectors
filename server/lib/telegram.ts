@@ -2,6 +2,16 @@ import { createHmac } from "node:crypto";
 import { db } from "../db";
 import { getSettings } from "./domain";
 import { HttpError, timingSafeEqualString } from "./errors";
+import {
+  assertTelegramProxyConfig,
+  createTelegramProxyAgent,
+  parseTelegramProxyUrl,
+  probeTelegramApi,
+  telegramFetch,
+  type TelegramPathError,
+  type TelegramProxyAgent,
+  type TelegramProxyConfig,
+} from "./telegramProxy";
 
 const INIT_DATA_MAX_AGE_SEC = 24 * 60 * 60;
 
@@ -17,6 +27,17 @@ export type TelegramRuntime = {
   miniAppUrl: string | null;
   botUsername: string | null;
   botRunning: boolean;
+  proxy: TelegramProxyConfig | null;
+  proxySource: "database" | "env" | null;
+  proxyAgent: TelegramProxyAgent | null;
+};
+
+export type TelegramPathCheck = {
+  ok: boolean;
+  via: "proxy" | "direct";
+  latencyMs: number;
+  error: TelegramPathError | null;
+  checkedAt: number;
 };
 
 export type TelegramStatus = {
@@ -27,6 +48,14 @@ export type TelegramStatus = {
   miniAppUrl: string | null;
   groupChatId: string | null;
   groupChatTitle: string | null;
+  proxyConfigured: boolean;
+  proxySource: "database" | "env" | null;
+  proxyType: "http" | "socks5" | null;
+  proxyHost: string | null;
+  proxyPort: number | null;
+  proxyUsername: string | null;
+  proxyPasswordSet: boolean;
+  pathCheck: TelegramPathCheck | null;
 };
 
 let runtime: TelegramRuntime = {
@@ -34,6 +63,9 @@ let runtime: TelegramRuntime = {
   miniAppUrl: null,
   botUsername: null,
   botRunning: false,
+  proxy: null,
+  proxySource: null,
+  proxyAgent: null,
 };
 
 export function patchTelegramRuntime(partial: Partial<TelegramRuntime>): void {
@@ -72,20 +104,112 @@ export function assertGroupChatId(raw: string): string {
   return trimmed;
 }
 
+function proxyFromSettings(settings: {
+  proxyType: string | null;
+  proxyHost: string | null;
+  proxyPort: number | null;
+  proxyUsername: string | null;
+  proxyPassword: string | null;
+} | null): TelegramProxyConfig | null {
+  if (!settings?.proxyType || !settings.proxyHost || settings.proxyPort == null) {
+    return null;
+  }
+  try {
+    return assertTelegramProxyConfig({
+      type: settings.proxyType,
+      host: settings.proxyHost,
+      port: settings.proxyPort,
+      username: settings.proxyUsername,
+      password: settings.proxyPassword,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function resolveProxy(settings: {
+  proxyType: string | null;
+  proxyHost: string | null;
+  proxyPort: number | null;
+  proxyUsername: string | null;
+  proxyPassword: string | null;
+} | null): { proxy: TelegramProxyConfig | null; source: "database" | "env" | null } {
+  const fromDb = proxyFromSettings(settings);
+  if (fromDb) {
+    return { proxy: fromDb, source: "database" };
+  }
+  const env = process.env.TELEGRAM_PROXY?.trim();
+  if (env) {
+    try {
+      return { proxy: parseTelegramProxyUrl(env), source: "env" };
+    } catch {
+      return { proxy: null, source: null };
+    }
+  }
+  return { proxy: null, source: null };
+}
+
 export async function refreshTelegramRuntime(): Promise<TelegramRuntime> {
   const settings = await getSettings(db);
   const botToken = settings?.botToken?.trim() || process.env.BOT_TOKEN?.trim() || null;
   const miniAppUrl = normalizeMiniAppUrl(
     settings?.miniAppUrl?.trim() || process.env.MINIAPP_URL?.trim() || "",
   );
+  const { proxy, source } = resolveProxy(settings);
   runtime = {
     ...runtime,
     botToken,
     miniAppUrl,
     botUsername: botToken ? runtime.botUsername : null,
     botRunning: botToken ? runtime.botRunning : false,
+    proxy,
+    proxySource: source,
+    proxyAgent: proxy ? createTelegramProxyAgent(proxy) : null,
   };
   return runtime;
+}
+
+export function getTelegramProxyAgent(): TelegramProxyAgent | null {
+  return runtime.proxyAgent;
+}
+
+let lastPathCheck: TelegramPathCheck | null = null;
+let lastPathCheckKey: string | null = null;
+
+function currentPathKey(): string {
+  const proxy = runtime.proxy;
+  if (!proxy) {
+    return "direct";
+  }
+  return `${proxy.type}:${proxy.host}:${proxy.port}:${proxy.username ?? ""}`;
+}
+
+export async function checkTelegramPath(): Promise<TelegramPathCheck> {
+  await refreshTelegramRuntime();
+  const probe = await probeTelegramApi(runtime.proxyAgent, runtime.botToken);
+  lastPathCheck = {
+    ok: probe.ok,
+    via: runtime.proxy ? "proxy" : "direct",
+    latencyMs: probe.latencyMs,
+    error: probe.error,
+    checkedAt: Date.now(),
+  };
+  lastPathCheckKey = currentPathKey();
+  return lastPathCheck;
+}
+
+function cachedPathCheck(): TelegramPathCheck | null {
+  if (!lastPathCheck || lastPathCheckKey !== currentPathKey()) {
+    return null;
+  }
+  return lastPathCheck;
+}
+
+export async function telegramApiFetch(
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string },
+) {
+  return await telegramFetch(url, init, runtime.proxyAgent);
 }
 
 export async function getBotToken(): Promise<string> {
@@ -103,7 +227,8 @@ export function getMiniAppUrl(): string | null {
 }
 
 export async function fetchBotIdentity(token: string): Promise<{ username: string; id: number }> {
-  const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+  await refreshTelegramRuntime();
+  const response = await telegramApiFetch(`https://api.telegram.org/bot${token}/getMe`);
   const payload: unknown = await response.json().catch(() => null);
   if (
     typeof payload !== "object" ||
@@ -124,7 +249,8 @@ export async function fetchBotIdentity(token: string): Promise<{ username: strin
 }
 
 export async function fetchChatTitle(token: string, chatId: string): Promise<string | null> {
-  const response = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+  await refreshTelegramRuntime();
+  const response = await telegramApiFetch(`https://api.telegram.org/bot${token}/getChat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId }),
@@ -153,7 +279,7 @@ export async function fetchChatTitle(token: string, chatId: string): Promise<str
 
 export async function sendTelegramMessage(chatId: string, text: string): Promise<void> {
   const token = await getBotToken();
-  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const response = await telegramApiFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text }),
@@ -195,6 +321,14 @@ export async function getTelegramStatus(): Promise<TelegramStatus> {
     miniAppUrl: runtime.miniAppUrl,
     groupChatId: settings?.groupChatId ?? null,
     groupChatTitle: settings?.groupChatTitle ?? null,
+    proxyConfigured: Boolean(runtime.proxy),
+    proxySource: runtime.proxySource,
+    proxyType: runtime.proxy?.type ?? null,
+    proxyHost: runtime.proxy?.host ?? null,
+    proxyPort: runtime.proxy?.port ?? null,
+    proxyUsername: runtime.proxy?.username ?? null,
+    proxyPasswordSet: Boolean(runtime.proxy?.password),
+    pathCheck: cachedPathCheck(),
   };
 }
 

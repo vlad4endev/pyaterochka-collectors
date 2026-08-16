@@ -26,6 +26,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       BOT_TOKEN: ${BOT_TOKEN:-}
       MINIAPP_URL: ${MINIAPP_URL:-}
+      TELEGRAM_PROXY: ${TELEGRAM_PROXY:-}
     volumes:
       - invoices:/app/data/invoices
     depends_on:

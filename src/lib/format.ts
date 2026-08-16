@@ -135,6 +135,12 @@ const ERROR_RU: Record<string, string> = {
   "Chat not found": "Бот не видит этот чат — добавьте его в группу и проверьте ID",
   "Group chat is not linked": "Сначала привяжите группу в разделе Telegram",
   "Failed to send Telegram message": "Не удалось отправить сообщение в Telegram",
+  "Cannot reach Telegram API. Check proxy settings":
+    "Нет доступа к Telegram API. Если он заблокирован, укажите HTTP или SOCKS5 прокси",
+  "Proxy type must be http or socks5": "Тип прокси — HTTP или SOCKS5 (не MTProto)",
+  "Invalid proxy host": "Укажите хост прокси без протокола, например 127.0.0.1",
+  "Invalid proxy port": "Порт прокси должен быть числом от 1 до 65535",
+  "Invalid Telegram proxy URL": "Некорректный URL прокси в TELEGRAM_PROXY",
   "Collector has no Telegram ID": "У участника нет Telegram ID — укажите его в разделе Участники",
   "Collector has not started the bot": "Участник ещё не нажал /start у бота — бот не может написать первым",
   "Collector has no missing reports": "У этого участника нет пропусков в этом периоде",

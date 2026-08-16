@@ -8,6 +8,7 @@ import {
 } from "./lib/miniapp";
 import {
   getMiniAppUrl,
+  getTelegramProxyAgent,
   patchTelegramRuntime,
   refreshTelegramRuntime,
 } from "./lib/telegram";
@@ -91,7 +92,17 @@ async function bindCurrentChat(ctx: Context): Promise<void> {
 }
 
 export function createBot(token: string): Bot {
-  const bot = new Bot(token);
+  const proxyAgent = getTelegramProxyAgent();
+  const bot = new Bot(token, {
+    client: proxyAgent
+      ? {
+          baseFetchConfig: {
+            agent: proxyAgent,
+            compress: true,
+          },
+        }
+      : undefined,
+  });
 
   bot.command("start", async (ctx) => {
     await sendGreeting(ctx, true);
