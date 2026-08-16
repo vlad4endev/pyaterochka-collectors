@@ -173,7 +173,127 @@ export function assertPeriodDates(startDate: string, endDate: string): void {
   }
 }
 
-export { assertDate, assertDayOfWeek };
+export type PeriodKind = "current" | "previous" | "past" | "future";
+
+export function periodKind(
+  period: { startDate: string; endDate: string },
+  nowMs = Date.now(),
+): PeriodKind {
+  const current = currentMoscowWeek(nowMs);
+  const previous = previousMoscowWeek(nowMs);
+  if (period.startDate > current.endDate) {
+    return "future";
+  }
+  if (period.endDate >= current.startDate && period.startDate <= current.endDate) {
+    return "current";
+  }
+  if (period.endDate >= previous.startDate && period.startDate <= previous.endDate) {
+    return "previous";
+  }
+  return "past";
+}
+
+export function isPeriodEditable(
+  period: { startDate: string; endDate: string; settledAt: Date | null },
+  nowMs = Date.now(),
+): boolean {
+  if (period.settledAt) {
+    return false;
+  }
+  const kind = periodKind(period, nowMs);
+  return kind === "current" || kind === "previous";
+}
+
+export async function requireEditablePeriod(
+  db: PrismaClient,
+  periodId: string,
+  nowMs = Date.now(),
+): Promise<Period> {
+  const period = await requirePeriod(db, periodId);
+  if (period.settledAt) {
+    throw new HttpError("Period is already settled", 409);
+  }
+  const kind = periodKind(period, nowMs);
+  if (kind === "future") {
+    throw new HttpError("Cannot change a future period");
+  }
+  if (kind !== "current" && kind !== "previous") {
+    throw new HttpError("Can only change the current and previous week");
+  }
+  return period;
+}
+
+export async function patchPeriod(
+  db: PrismaClient,
+  periodId: string,
+  patch: {
+    startDate?: string;
+    endDate?: string;
+    storeTotalRub?: number;
+    rate?: number;
+  },
+  nowMs = Date.now(),
+): Promise<Period> {
+  const period = await requireEditablePeriod(db, periodId, nowMs);
+  const startDate = patch.startDate ?? period.startDate;
+  const endDate = patch.endDate ?? period.endDate;
+  assertPeriodDates(startDate, endDate);
+
+  const current = currentMoscowWeek(nowMs);
+  if (endDate > current.endDate) {
+    throw new HttpError("Cannot change a future period");
+  }
+
+  const nextKind = periodKind({ startDate, endDate }, nowMs);
+  if (nextKind === "future") {
+    throw new HttpError("Cannot change a future period");
+  }
+  if (nextKind !== "current" && nextKind !== "previous") {
+    throw new HttpError("Can only change the current and previous week");
+  }
+
+  if (startDate !== period.startDate || endDate !== period.endDate) {
+    if (startDate !== period.startDate) {
+      const sameStart = await db.period.findUnique({ where: { startDate } });
+      if (sameStart) {
+        throw new HttpError("A period already starts on this date", 409);
+      }
+    }
+    const overlap = await db.period.findFirst({
+      where: {
+        id: { not: period.id },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+    });
+    if (overlap) {
+      throw new HttpError("Period dates overlap another week", 409);
+    }
+    const stray = await db.entry.findFirst({
+      where: {
+        periodId: period.id,
+        OR: [{ date: { lt: startDate } }, { date: { gt: endDate } }],
+      },
+    });
+    if (stray) {
+      throw new HttpError("Period has entries outside the new dates");
+    }
+  }
+
+  return await db.period.update({
+    where: { id: period.id },
+    data: {
+      startDate,
+      endDate,
+      ...(patch.storeTotalRub !== undefined
+        ? { storeTotalRub: assertStoreTotal(patch.storeTotalRub) }
+        : {}),
+      ...(patch.rate !== undefined ? { rate: assertRate(patch.rate) } : {}),
+    },
+  });
+}
+
+export { assertDate, assertDayOfWeek, currentMoscowWeek, previousMoscowWeek };
 
 export const KG_RATE_RUB = 20;
 

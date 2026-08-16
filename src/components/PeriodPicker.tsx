@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api } from "../lib/api";
+import { api, type Period } from "../lib/api";
 import { errorMessage, periodLabel } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
@@ -8,6 +8,16 @@ type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
 };
+
+function kindLabel(period: Period): string | null {
+  if (period.kind === "current") {
+    return "текущая";
+  }
+  if (period.kind === "previous") {
+    return "прошлая";
+  }
+  return null;
+}
 
 export function PeriodPicker({ selectedId, onSelect }: Props) {
   const { token, refreshData } = useSession();
@@ -19,32 +29,38 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [storeTotalRub, setStoreTotalRub] = useState("8000");
   const [rate, setRate] = useState("20");
 
   const selected = periods?.find((period) => period._id === selectedId);
-  const openPeriod = periods?.find((period) => period.status === "open");
   const label = selected
     ? periodLabel(selected.startDate, selected.endDate)
     : "Нет периода";
 
   useEffect(() => {
-    if (!openPeriod) {
+    if (!selected) {
       return;
     }
-    setStoreTotalRub(String(openPeriod.storeTotalRub));
-    setRate(String(openPeriod.rate));
-  }, [openPeriod]);
+    setStartDate(selected.startDate);
+    setEndDate(selected.endDate);
+    setStoreTotalRub(String(selected.storeTotalRub));
+    setRate(String(selected.rate));
+    setError(null);
+  }, [selected]);
 
   async function onSaveWeek(event: FormEvent) {
     event.preventDefault();
-    if (!token || !openPeriod) {
+    if (!token || !selected?.editable) {
       return;
     }
     setError(null);
     setBusy(true);
     try {
-      await api.periods.update(token, openPeriod._id, {
+      await api.periods.update(token, selected._id, {
+        startDate,
+        endDate,
         storeTotalRub: Number(storeTotalRub),
         rate: Number(rate),
       });
@@ -57,7 +73,7 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
   }
 
   async function onClose() {
-    if (!openPeriod || !token) {
+    if (!selected || selected.status !== "open" || !token) {
       return;
     }
     if (!window.confirm("Закрыть текущую неделю? Новые записи в неё больше не попадут.")) {
@@ -66,7 +82,7 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
     setError(null);
     setBusy(true);
     try {
-      await api.periods.close(token, openPeriod._id);
+      await api.periods.close(token, selected._id);
       refreshData();
     } catch (err) {
       setError(errorMessage(err));
@@ -97,11 +113,11 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
               <div>
                 <h2>Неделя</h2>
                 <p className="h2-sub">
-                  С понедельника по воскресенье, открывается сама. Воскресенье — день взносов.
+                  Можно править текущую и прошлую. Будущие недели не создаём и не показываем.
                 </p>
               </div>
               <button type="button" className="btn-ghost" onClick={() => setOpen(false)}>
-                Закрыть
+                Готово
               </button>
             </div>
             {periods === undefined ? (
@@ -110,43 +126,73 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
               <div className="empty">Периодов ещё нет</div>
             ) : (
               <div className="period-list">
-                {periods.map((period) => (
-                  <button
-                    key={period._id}
-                    type="button"
-                    className={`period-row${period._id === selectedId ? " active" : ""}`}
-                    onClick={() => {
-                      onSelect(period._id);
-                      setOpen(false);
-                    }}
-                  >
-                    <span>{periodLabel(period.startDate, period.endDate)}</span>
-                    <span
-                      className={`badge ${
-                        period.settledAt
-                          ? "info"
-                          : period.status === "open"
-                            ? "ok"
-                            : "warn"
-                      }`}
+                {periods.map((period) => {
+                  const extra = kindLabel(period);
+                  return (
+                    <button
+                      key={period._id}
+                      type="button"
+                      className={`period-row${period._id === selectedId ? " active" : ""}`}
+                      onClick={() => onSelect(period._id)}
                     >
-                      {period.settledAt
-                        ? "оплачена"
-                        : period.status === "open"
-                          ? "открыта"
-                          : "не оплачена"}
-                    </span>
-                  </button>
-                ))}
+                      <span>
+                        {periodLabel(period.startDate, period.endDate)}
+                        {extra ? (
+                          <span className="period-row-kind"> · {extra}</span>
+                        ) : null}
+                      </span>
+                      <span
+                        className={`badge ${
+                          period.settledAt
+                            ? "info"
+                            : period.status === "open"
+                              ? "ok"
+                              : "warn"
+                        }`}
+                      >
+                        {period.settledAt
+                          ? "оплачена"
+                          : period.status === "open"
+                            ? "открыта"
+                            : "не оплачена"}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
-            {openPeriod ? (
+            {selected?.editable ? (
               <form className="period-settings" onSubmit={(event) => void onSaveWeek(event)}>
-                <h3>Параметры открытой недели</h3>
+                <h3>
+                  {selected.kind === "previous" ? "Прошлая неделя" : "Текущая неделя"}
+                </h3>
                 <p className="h2-sub">
-                  Даты не трогаем — только сумма магазина и ставка. Они копируются на следующую неделю.
+                  Даты, сумма магазина и ставка. Если в периоде уже есть записи, новые даты должны их
+                  покрывать.
                 </p>
+                <div className="grid2">
+                  <div className="field">
+                    <label htmlFor="pStart">С</label>
+                    <input
+                      id="pStart"
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => setStartDate(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="pEnd">По</label>
+                    <input
+                      id="pEnd"
+                      type="date"
+                      value={endDate}
+                      onChange={(event) => setEndDate(event.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
                 <div className="grid2">
                   <div className="field">
                     <label htmlFor="pTotal">Сумма магазина, ₽</label>
@@ -174,16 +220,23 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
                   <button className="btn-primary" disabled={busy}>
                     Сохранить
                   </button>
-                  <button
-                    type="button"
-                    className="btn-quiet danger"
-                    disabled={busy}
-                    onClick={() => void onClose()}
-                  >
-                    Закрыть неделю
-                  </button>
+                  {selected.status === "open" ? (
+                    <button
+                      type="button"
+                      className="btn-quiet danger"
+                      disabled={busy}
+                      onClick={() => void onClose()}
+                    >
+                      Закрыть неделю
+                    </button>
+                  ) : null}
                 </div>
               </form>
+            ) : selected ? (
+              <div className="empty" style={{ textAlign: "left" }}>
+                Эту неделю уже не меняем — только текущую и прошлую.
+                {error ? <div className="err">{error}</div> : null}
+              </div>
             ) : (
               <div className="empty" style={{ textAlign: "left" }}>
                 Текущая неделя закрыта. Следующая откроется в понедельник.

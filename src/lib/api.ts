@@ -9,6 +9,8 @@ export type Period = {
   rate: number;
   status: "open" | "closed";
   settledAt: number | null;
+  kind: "current" | "previous" | "past" | "future";
+  editable: boolean;
 };
 
 export type Collector = {
@@ -253,7 +255,7 @@ export const api = {
     update: (
       token: string,
       id: string,
-      body: { storeTotalRub?: number; rate?: number },
+      body: { startDate?: string; endDate?: string; storeTotalRub?: number; rate?: number },
     ) => apiRequest<null>(`/periods/${id}`, { method: "PATCH", token, body }),
     close: (token: string, id: string) =>
       apiRequest<null>(`/periods/${id}/close`, { method: "POST", token }),

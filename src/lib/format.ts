@@ -103,6 +103,14 @@ const ERROR_RU: Record<string, string> = {
   "ADMIN_PASSWORD is not configured": "Пароль админки не задан на сервере",
   "An open period already exists": "Уже есть открытый период — сначала закройте его",
   "Failed to open the current week": "Не удалось открыть текущую неделю",
+  "Can only change the current and previous week":
+    "Менять можно только текущую и прошлую неделю",
+  "Cannot change a future period": "Будущие недели менять нельзя",
+  "A period already starts on this date": "На эту дату уже есть другая неделя",
+  "Period dates overlap another week": "Даты пересекаются с другой неделей",
+  "Period has entries outside the new dates":
+    "В этом периоде уже есть записи вне новых дат — сначала поправьте их",
+  "startDate must be on or before endDate": "Дата начала должна быть не позже конца",
   "Period is already closed": "Период уже закрыт",
   "Period is closed": "Период закрыт",
   "Period not found": "Период не найден",

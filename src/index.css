@@ -937,9 +937,9 @@ code {
   border-color: var(--ink);
   background: #eef8c4;
 }
-.period-row .meta {
-  font-size: 12px;
+.period-row-kind {
   color: var(--muted);
+  font-weight: 650;
 }
 .loading {
   font-size: 13px;

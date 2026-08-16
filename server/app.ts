@@ -18,12 +18,13 @@ import {
   normalizeOptionalTelegram,
   requireCollector,
   requireCollectorUnpaid,
-  requireOpenPeriod,
   requirePeriod,
   requirePreviousWeekPeriod,
   requireUnsettledPeriod,
   assertDateInPeriod,
+  currentMoscowWeek,
   entryPayeeId,
+  patchPeriod,
 } from "./lib/domain";
 import { collectorDto, pendingDto, periodDto, settingsDto } from "./lib/dto";
 import {
@@ -178,7 +179,12 @@ authed.patch("/collectors/:id", async (c) => {
 
 authed.get("/periods", async (c) => {
   await ensureCurrentWeekPeriod(db);
-  const rows = await db.period.findMany({ orderBy: { startDate: "desc" }, take: 100 });
+  const latest = currentMoscowWeek(Date.now()).endDate;
+  const rows = await db.period.findMany({
+    where: { startDate: { lte: latest } },
+    orderBy: { startDate: "desc" },
+    take: 100,
+  });
   return c.json(rows.map(periodDto));
 });
 
@@ -195,6 +201,12 @@ authed.post("/periods", async (c) => {
     rate?: number;
   }>();
   assertPeriodDates(body.startDate ?? "", body.endDate ?? "");
+  if ((body.startDate ?? "") > currentMoscowWeek(Date.now()).endDate) {
+    throw new HttpError("Cannot change a future period");
+  }
+  if ((body.endDate ?? "") > currentMoscowWeek(Date.now()).endDate) {
+    throw new HttpError("Cannot change a future period");
+  }
   const existing = await getOpenPeriod(db);
   if (existing) {
     throw new HttpError("An open period already exists", 409);
@@ -213,20 +225,13 @@ authed.post("/periods", async (c) => {
 
 authed.patch("/periods/:id", async (c) => {
   const id = c.req.param("id");
-  await requireOpenPeriod(db, id);
   const body = await c.req.json<{
+    startDate?: string;
+    endDate?: string;
     storeTotalRub?: number;
     rate?: number;
   }>();
-  await db.period.update({
-    where: { id },
-    data: {
-      ...(body.storeTotalRub !== undefined
-        ? { storeTotalRub: assertStoreTotal(body.storeTotalRub) }
-        : {}),
-      ...(body.rate !== undefined ? { rate: assertRate(body.rate) } : {}),
-    },
-  });
+  await patchPeriod(db, id, body);
   return c.json(null);
 });
 

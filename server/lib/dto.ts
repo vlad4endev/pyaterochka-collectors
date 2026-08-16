@@ -1,4 +1,5 @@
 import type { Collector, Entry, Period, Settings } from "@prisma/client";
+import { isPeriodEditable, periodKind } from "./domain";
 
 export function collectorDto(row: Collector) {
   return {
@@ -12,6 +13,7 @@ export function collectorDto(row: Collector) {
 }
 
 export function periodDto(row: Period) {
+  const kind = periodKind(row);
   return {
     _id: row.id,
     _creationTime: row.createdAt.getTime(),
@@ -21,6 +23,8 @@ export function periodDto(row: Period) {
     rate: row.rate,
     status: row.status,
     settledAt: row.settledAt?.getTime() ?? null,
+    kind,
+    editable: isPeriodEditable(row),
   };
 }
 
