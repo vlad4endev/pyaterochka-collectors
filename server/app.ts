@@ -23,6 +23,7 @@ import {
   requirePreviousWeekPeriod,
   requireUnsettledPeriod,
   assertDateInPeriod,
+  entryPayeeId,
 } from "./lib/domain";
 import { collectorDto, pendingDto, periodDto, settingsDto } from "./lib/dto";
 import {
@@ -291,7 +292,8 @@ authed.post("/entries/:id/confirm", async (c) => {
     throw new HttpError("Entry is not pending review");
   }
   await requireUnsettledPeriod(db, entry.periodId);
-  await requireCollectorUnpaid(db, entry.periodId, entry.collectorId);
+  const payeeId = entryPayeeId(entry);
+  await requireCollectorUnpaid(db, entry.periodId, payeeId);
   await db.entry.update({
     where: { id },
     data: {
@@ -300,7 +302,7 @@ authed.post("/entries/:id/confirm", async (c) => {
       confirmedAt: new Date(),
     },
   });
-  await syncUnpaidCollectorPayment(db, entry.periodId, entry.collectorId);
+  await syncUnpaidCollectorPayment(db, entry.periodId, payeeId);
   return c.json(null);
 });
 
@@ -367,8 +369,8 @@ authed.post("/entries/credit", async (c) => {
     throw new HttpError("creditedByCollectorId must be a different collector");
   }
   const period = await requireUnsettledPeriod(db, periodId);
-  await requireCollectorUnpaid(db, periodId, collectorId);
-  await requireCollector(db, creditedByCollectorId);
+  await requireCollector(db, collectorId);
+  await requireCollectorUnpaid(db, periodId, creditedByCollectorId);
   const date = assertDateInPeriod(body.date ?? "", period.startDate, period.endDate);
   const row = await db.entry.create({
     data: {
@@ -383,7 +385,7 @@ authed.post("/entries/credit", async (c) => {
       confirmedAt: new Date(),
     },
   });
-  await syncUnpaidCollectorPayment(db, periodId, collectorId);
+  await syncUnpaidCollectorPayment(db, periodId, creditedByCollectorId);
   return c.json(row.id);
 });
 

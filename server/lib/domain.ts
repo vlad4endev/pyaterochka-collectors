@@ -176,6 +176,13 @@ export function assertPeriodDates(startDate: string, endDate: string): void {
 export { assertDate, assertDayOfWeek };
 
 export const KG_RATE_RUB = 20;
+
+export function entryPayeeId(entry: {
+  collectorId: string;
+  creditedByCollectorId: string | null;
+}): string {
+  return entry.creditedByCollectorId ?? entry.collectorId;
+}
 const DEFAULT_WEEK_STORE_TOTAL = 8000;
 
 export async function requirePreviousWeekPeriod(

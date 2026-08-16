@@ -138,6 +138,7 @@ const ERROR_RU: Record<string, string> = {
   "Collector is inactive": "Ты скрыт в списке участников",
   "Date is outside the open period": "Дата не входит в текущий период",
   "Date is in the future": "Нельзя внести за день, который ещё не наступил",
+  "Collector is not scheduled on this date": "В этот день в расписании другой участник",
   "creditedByCollectorId must be a different collector": "Засчитать можно только за другого участника",
   "kg must be greater than 0": "Укажите килограммы больше нуля",
   "storeTotalRub must be greater than 0": "Укажите сумму из счёта магазина",

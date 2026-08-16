@@ -13,6 +13,7 @@ import {
   requireCollector,
   requireOpenPeriod,
   KG_RATE_RUB,
+  entryPayeeId,
 } from "./domain";
 import { HttpError } from "./errors";
 
@@ -221,8 +222,11 @@ export async function getMiniHome(
   let kg = 0;
   const itemRows: MiniEntry[] = [];
   for (const entry of entries) {
-    if (entry.collectorId === collector.id && entry.status === "confirmed" && entry.kg !== null) {
-      kg += entry.kg;
+    if (entry.status === "confirmed" && entry.kg !== null) {
+      const payeeId = entryPayeeId(entry);
+      if (payeeId === collector.id) {
+        kg += entry.kg;
+      }
     }
     const creditedBy = entry.creditedByCollectorId
       ? byId.get(entry.creditedByCollectorId)
@@ -356,7 +360,10 @@ export async function submitCollectorReport(
 
   const forCollectorId = body.forCollectorId?.trim() || undefined;
   if (forCollectorId && forCollectorId !== collector.id) {
-    await requireCollector(db, forCollectorId);
+    const target = await requireCollector(db, forCollectorId);
+    if (target.dayOfWeek !== weekdayFromIso(date)) {
+      throw new HttpError("Collector is not scheduled on this date");
+    }
   }
   const targetId = forCollectorId && forCollectorId !== collector.id ? forCollectorId : collector.id;
   const creditedByCollectorId = targetId === collector.id ? undefined : collector.id;

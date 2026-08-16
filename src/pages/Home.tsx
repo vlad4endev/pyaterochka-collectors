@@ -529,10 +529,10 @@ export function HomePage({ periodId, onPeriod }: Props) {
                   hasPhoto={Boolean(item.hasPhoto ?? item.telegramFileId)}
                 />
                 <div className="review-info">
-                  <div className="name">{item.collectorName}</div>
+                  <div className="name">{item.creditedByName ?? item.collectorName}</div>
                   <div className="meta">
                     {fmtShort(item.date)} · {dayName(item.date)}
-                    {item.creditedByName ? ` · от ${item.creditedByName}` : ""}
+                    {item.creditedByName ? ` · за ${item.collectorName}` : ""}
                     {item.hasPhoto || item.telegramFileId ? " · есть фото" : " · без фото"}
                   </div>
                 </div>

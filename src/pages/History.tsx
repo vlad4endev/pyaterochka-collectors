@@ -54,8 +54,12 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
       };
       if (creditedBy && creditedBy !== collectorId) {
         await api.entries.createCredit(token, {
-          ...body,
-          creditedByCollectorId: creditedBy,
+          periodId,
+          collectorId: creditedBy,
+          creditedByCollectorId: collectorId,
+          date,
+          kg: Number(kg),
+          note: note.trim() || undefined,
         });
       } else {
         await api.entries.createManual(token, body);
@@ -99,9 +103,9 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
                     <span style={{ color: "#8b8b8b" }}>· {dayName(row.date)}</span>
                   </td>
                   <td>
-                    {row.collectorName}
+                    {row.creditedByName ?? row.collectorName}
                     {row.creditedByName ? (
-                      <div className="hist-credit">засчитано от {row.creditedByName}</div>
+                      <div className="hist-credit">день {row.collectorName}</div>
                     ) : null}
                     {row.note ? <div className="hist-note">«{row.note}»</div> : null}
                   </td>
@@ -123,8 +127,8 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
           <form className="card" onSubmit={(event) => void onAdd(event)}>
             <h2>Добавить запись вручную</h2>
             <div className="h2-sub">
-              Если участник сам не внёс кг — можно указать за него. Работает и для прошлых недель,
-              пока по ним не закрыта оплата.
+              Если кто-то забрал чужой день — кг и сумма идут ему, а в календаре закрывается день
+              того, за кого взяли. Можно править и прошлые недели, пока по ним не закрыта оплата.
             </div>
             <div className="grid2">
               <div className="field">
@@ -170,13 +174,13 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
                 />
               </div>
               <div className="field">
-                <label htmlFor="hCredit">Засчитано от</label>
+                <label htmlFor="hCredit">За кого взял</label>
                 <select
                   id="hCredit"
                   value={creditedBy}
                   onChange={(event) => setCreditedBy(event.target.value)}
                 >
-                  <option value="">нет — сам забирал</option>
+                  <option value="">нет — свой день</option>
                   {collectors
                     ?.filter((collector) => collector._id !== collectorId)
                     .map((collector) => (

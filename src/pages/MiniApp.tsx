@@ -21,19 +21,19 @@ function haptic(kind: "success" | "error" | "warning" | "select") {
   feedback?.notificationOccurred(kind);
 }
 
-function defaultForId(home: MiniHome, date: string): string {
-  if (!home.collector) {
-    return "";
-  }
+function scheduledOthers(home: MiniHome, date: string): MiniPerson[] {
   const day = home.days.find((item) => item.date === date);
   if (!day) {
+    return [];
+  }
+  return day.scheduled.filter((person) => person._id !== home.collector?._id);
+}
+
+function defaultForId(home: MiniHome, date: string): string {
+  if (!home.collector || isMyScheduledDay(home, date)) {
     return "";
   }
-  const mine = home.collector.dayOfWeek !== null && day.weekday === home.collector.dayOfWeek;
-  if (mine) {
-    return "";
-  }
-  return day.scheduled.find((person) => person._id !== home.collector?._id)?._id ?? "";
+  return scheduledOthers(home, date)[0]?._id ?? "";
 }
 
 function firstName(name: string): string {
@@ -165,14 +165,15 @@ export function MiniAppPage() {
 
   const selectedDay = home?.days.find((day) => day.date === date);
   const myDay = Boolean(home && date && isMyScheduledDay(home, date));
+  const whoOptions = home && date ? scheduledOthers(home, date) : [];
   const showWho = Boolean(
     home?.collector?.active &&
       home.period?.status === "open" &&
       selectedDay &&
       !myDay &&
-      home.others.length > 0,
+      whoOptions.length > 0,
   );
-  const forPerson = home?.others.find((person) => person._id === forId);
+  const forPerson = whoOptions.find((person) => person._id === forId) ?? whoOptions[0];
   const canSubmit = Number(kg) > 0 || photo !== null;
   const kgPreview = Number(kg);
   const amountPreview =
@@ -215,7 +216,7 @@ export function MiniAppPage() {
       await api.miniapp.createEntry(initData, {
         date,
         kg: Number(kg) > 0 ? Number(kg) : undefined,
-        collectorId: showWho && forId ? forId : undefined,
+        collectorId: showWho ? forId || forPerson?._id : undefined,
         photo: photo ?? undefined,
       });
       setKg("");
@@ -224,7 +225,7 @@ export function MiniAppPage() {
       haptic("success");
       setToast(
         showWho && forPerson
-          ? `На ${firstName(forPerson.name)} · на проверке`
+          ? `За ${firstName(forPerson.name)} · кг тебе · на проверке`
           : "Отправлено на проверку",
       );
       setEpoch((value) => value + 1);
@@ -295,13 +296,16 @@ export function MiniAppPage() {
   }
 
   const periodOpen = home.period?.status === "open";
-  const whoOptions: MiniPerson[] = home.others;
   const contextLabel = todaySelected
     ? myDay
       ? `Сегодня, ${DAY_SHORT[weekdayFromIso(date)]}`
       : `Сегодня · не твой день`
     : `${DAY_SHORT[weekdayFromIso(date)]} ${fmtHuman(date)}`;
-  const contextWho = myDay ? "запишем на тебя" : forPerson ? `за ${firstName(forPerson.name)}` : "запишем на тебя";
+  const contextWho = myDay
+    ? "кг запишем тебе"
+    : forPerson
+      ? `день ${firstName(forPerson.name)} · кг тебе`
+      : "кг запишем тебе";
 
   return (
     <div className="miniapp">
@@ -464,35 +468,24 @@ export function MiniAppPage() {
           {showWho ? (
             <div className="ma-who">
               <div className="ma-kicker">За кого взял</div>
+              <p className="ma-plus dim" style={{ margin: "0 0 8px" }}>
+                День закроется у него, кг и сумма — тебе.
+              </p>
               <div className="ma-people">
-                <button
-                  type="button"
-                  className={`ma-person${forId === "" ? " on" : ""}`}
-                  onClick={() => {
-                    haptic("select");
-                    setForId("");
-                  }}
-                >
-                  <span className="ma-ava me">Я</span>
-                  Себе
-                </button>
-                {whoOptions.map((person) => {
-                  const scheduled = selectedDay?.scheduled.some((row) => row._id === person._id);
-                  return (
-                    <button
-                      type="button"
-                      key={person._id}
-                      className={`ma-person${forId === person._id ? " on" : ""}`}
-                      onClick={() => {
-                        haptic("select");
-                        setForId(person._id);
-                      }}
-                    >
-                      <span className={`ma-ava${scheduled ? " slot" : ""}`}>{initials(person.name)}</span>
-                      {firstName(person.name)}
-                    </button>
-                  );
-                })}
+                {whoOptions.map((person) => (
+                  <button
+                    type="button"
+                    key={person._id}
+                    className={`ma-person${(forId || whoOptions[0]?._id) === person._id ? " on" : ""}`}
+                    onClick={() => {
+                      haptic("select");
+                      setForId(person._id);
+                    }}
+                  >
+                    <span className="ma-ava slot">{initials(person.name)}</span>
+                    {firstName(person.name)}
+                  </button>
+                ))}
               </div>
             </div>
           ) : null}
@@ -588,7 +581,7 @@ export function MiniAppPage() {
                       <small>за {firstName(entry.creditedForName)}</small>
                     ) : null}
                     {entry.creditedByName ? (
-                      <small>от {firstName(entry.creditedByName)}</small>
+                      <small>день закрыл {firstName(entry.creditedByName)}</small>
                     ) : null}
                   </span>
                   <em className={entry.status}>{statusCopy(entry.status)}</em>

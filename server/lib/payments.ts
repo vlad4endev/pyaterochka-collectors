@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { getDashboard } from "./dashboard";
-import { KG_RATE_RUB, requireCollector, requirePeriod } from "./domain";
+import { KG_RATE_RUB, entryPayeeId, requireCollector, requirePeriod } from "./domain";
 import { HttpError } from "./errors";
 
 export type SettlementRow = {
@@ -58,10 +58,8 @@ export async function getPeriodSettlement(
     if (entry.kg === null) {
       continue;
     }
-    liveKgByCollector.set(
-      entry.collectorId,
-      (liveKgByCollector.get(entry.collectorId) ?? 0) + entry.kg,
-    );
+    const payeeId = entryPayeeId(entry);
+    liveKgByCollector.set(payeeId, (liveKgByCollector.get(payeeId) ?? 0) + entry.kg);
   }
   const payments = await db.payment.findMany({ where: { periodId }, take: 200 });
   const collectorIds = new Set<string>([
@@ -126,8 +124,24 @@ export async function syncUnpaidCollectorPayment(
   if (!existing || existing.paidAt) {
     return;
   }
+  const kg = await sumConfirmedKgForPayee(db, periodId, collectorId);
+  await db.payment.update({
+    where: { id: existing.id },
+    data: { kg, amountRub: kg * KG_RATE_RUB },
+  });
+}
+
+export async function sumConfirmedKgForPayee(
+  db: PrismaClient,
+  periodId: string,
+  collectorId: string,
+): Promise<number> {
   const entries = await db.entry.findMany({
-    where: { periodId, collectorId, status: "confirmed" },
+    where: {
+      periodId,
+      status: "confirmed",
+      OR: [{ collectorId, creditedByCollectorId: null }, { creditedByCollectorId: collectorId }],
+    },
     take: 500,
   });
   let kg = 0;
@@ -136,10 +150,7 @@ export async function syncUnpaidCollectorPayment(
       kg += entry.kg;
     }
   }
-  await db.payment.update({
-    where: { id: existing.id },
-    data: { kg, amountRub: kg * KG_RATE_RUB },
-  });
+  return kg;
 }
 
 async function listMissingAndPending(
@@ -299,16 +310,7 @@ export async function markCollectorPaid(
   if (existing?.paidAt) {
     throw new HttpError("Collector already paid");
   }
-  const entries = await db.entry.findMany({
-    where: { periodId, status: "confirmed", collectorId },
-    take: 500,
-  });
-  let kg = 0;
-  for (const entry of entries) {
-    if (entry.kg !== null) {
-      kg += entry.kg;
-    }
-  }
+  const kg = await sumConfirmedKgForPayee(db, periodId, collectorId);
   const amountRub = kg * KG_RATE_RUB;
   if (kg <= 0) {
     throw new HttpError("Collector has no confirmed kg in this period");

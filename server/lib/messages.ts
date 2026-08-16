@@ -3,7 +3,7 @@ import { getDashboard } from "./dashboard";
 import { KG_RATE_RUB, requireCollector, requirePeriod, requireSettings } from "./domain";
 import { eachDateInclusive } from "./dates";
 import { HttpError } from "./errors";
-import { getPeriodSettlement } from "./payments";
+import { getPeriodSettlement, sumConfirmedKgForPayee } from "./payments";
 import { getMiniAppUrl, sendTelegramMessage } from "./telegram";
 
 function fmtShort(iso: string): string {
@@ -201,16 +201,7 @@ export async function buildReminder(
   }
 
   const settings = await requireSettings(db);
-  const entries = await db.entry.findMany({
-    where: { periodId, collectorId, status: "confirmed" },
-    take: 500,
-  });
-  let kg = 0;
-  for (const entry of entries) {
-    if (entry.kg !== null) {
-      kg += entry.kg;
-    }
-  }
+  const kg = await sumConfirmedKgForPayee(db, periodId, collectorId);
   if (kg <= 0) {
     throw new HttpError("Collector has no confirmed kg in this period");
   }
