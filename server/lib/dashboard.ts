@@ -26,7 +26,12 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
     expectedKg > 0 ? Math.min(100, Math.round((confirmedKg / expectedKg) * 100)) : 0;
 
   const dates = eachDateInclusive(period.startDate, period.endDate);
-  const gaps: Array<{ collectorId: string; collectorName: string; date: string }> = [];
+  const gaps: Array<{
+    collectorId: string;
+    collectorName: string;
+    date: string;
+    hasTelegram: boolean;
+  }> = [];
   const calendar = [];
 
   for (const date of dates) {
@@ -53,7 +58,12 @@ export async function getDashboard(db: PrismaClient, periodId: string) {
         people.push({ collectorId: collector.id, name: collector.name, status: "pending" });
       } else {
         people.push({ collectorId: collector.id, name: collector.name, status: "scheduled" });
-        gaps.push({ collectorId: collector.id, collectorName: collector.name, date });
+        gaps.push({
+          collectorId: collector.id,
+          collectorName: collector.name,
+          date,
+          hasTelegram: Boolean(collector.telegramUserId),
+        });
       }
     }
 

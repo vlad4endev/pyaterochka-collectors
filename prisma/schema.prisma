@@ -91,15 +91,19 @@ model Payment {
 }
 
 model Settings {
-  id           String   @id @default(cuid())
-  createdAt    DateTime @default(now())
-  key          String   @unique @default("default")
-  bank         String
-  payTo        String
-  deadlineText String
-  windowStart  Int
-  windowEnd    Int
-  groupChatId  String?
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  key            String   @unique @default("default")
+  bank           String
+  payTo          String
+  deadlineText   String
+  windowStart    Int
+  windowEnd      Int
+  botToken                    String?
+  miniAppUrl                  String?
+  groupChatId                 String?
+  groupChatTitle              String?
+  dailyReportReminderSentOn   String?
 }
 
 model AdminSession {

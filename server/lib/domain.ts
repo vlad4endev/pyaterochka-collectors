@@ -45,6 +45,45 @@ export async function requireSettings(db: PrismaClient): Promise<Settings> {
   return settings;
 }
 
+type SettingsPatch = {
+  bank?: string;
+  payTo?: string;
+  deadlineText?: string;
+  windowStart?: number;
+  windowEnd?: number;
+  botToken?: string | null;
+  miniAppUrl?: string | null;
+  groupChatId?: string | null;
+  groupChatTitle?: string | null;
+};
+
+export async function patchDefaultSettings(
+  db: PrismaClient,
+  data: SettingsPatch,
+): Promise<Settings> {
+  const existing = await getSettings(db);
+  if (!existing) {
+    return await db.settings.create({
+      data: {
+        key: "default",
+        bank: data.bank ?? "—",
+        payTo: data.payTo ?? "—",
+        deadlineText: data.deadlineText ?? "—",
+        windowStart: data.windowStart ?? 17,
+        windowEnd: data.windowEnd ?? 21,
+        botToken: data.botToken,
+        miniAppUrl: data.miniAppUrl,
+        groupChatId: data.groupChatId,
+        groupChatTitle: data.groupChatTitle,
+      },
+    });
+  }
+  return await db.settings.update({
+    where: { key: "default" },
+    data,
+  });
+}
+
 export function normalizeName(name: string): string {
   const trimmed = name.trim();
   if (trimmed.length < 1) {

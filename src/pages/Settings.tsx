@@ -17,7 +17,6 @@ export function SettingsPage() {
   const [deadlineText, setDeadlineText] = useState("");
   const [windowStart, setWindowStart] = useState("17");
   const [windowEnd, setWindowEnd] = useState("21");
-  const [groupChatId, setGroupChatId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +30,6 @@ export function SettingsPage() {
     setDeadlineText(settings.deadlineText);
     setWindowStart(String(settings.windowStart));
     setWindowEnd(String(settings.windowEnd));
-    setGroupChatId(settings.groupChatId ?? "");
   }, [settings]);
 
   async function onSave(event: FormEvent) {
@@ -46,7 +44,6 @@ export function SettingsPage() {
         deadlineText,
         windowStart: Number(windowStart),
         windowEnd: Number(windowEnd),
-        groupChatId: groupChatId.trim() || undefined,
       });
       refreshData();
       setToast("Сохранено ✓");
@@ -64,7 +61,7 @@ export function SettingsPage() {
   return (
     <form onSubmit={(event) => void onSave(event)}>
       <h1 className="page-title">Настройки</h1>
-      <div className="page-sub">Реквизиты, окно приёма и Telegram</div>
+      <div className="page-sub">Реквизиты и окно приёма</div>
 
       <div className="card">
         <h2>Выплаты</h2>
@@ -121,19 +118,9 @@ export function SettingsPage() {
       </div>
 
       <div className="card">
-        <h2>Telegram-бот</h2>
-        <div className="h2-sub">
-          Бот отвечает на /start приветствием и кнопкой мини-приложения. Токен и URL задаются в{" "}
-          <code>.env</code>: <code>BOT_TOKEN</code> и <code>MINIAPP_URL</code> (https). В BotFather
-          поставь тот же URL как Menu Button.
-        </div>
-        <div className="field" style={{ maxWidth: 420 }}>
-          <label htmlFor="sGroupChat">Chat ID группы для авто-отправки (необязательно)</label>
-          <input
-            id="sGroupChat"
-            value={groupChatId}
-            onChange={(event) => setGroupChatId(event.target.value)}
-          />
+        <h2>Telegram</h2>
+        <div className="h2-sub" style={{ marginBottom: 0 }}>
+          Токен бота и привязка группы настраиваются в разделе Telegram в меню слева, не в .env.
         </div>
       </div>
 

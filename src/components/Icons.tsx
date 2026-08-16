@@ -36,6 +36,15 @@ export function IconHistory() {
   );
 }
 
+export function IconTelegram() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="M21 5 3.5 11.5 10 13.5l1.2 6.2 3.3-4.2 4.8 3.5L21 5Z" />
+      <path d="M10 13.5 16.5 8" />
+    </svg>
+  );
+}
+
 export function IconSettings() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">

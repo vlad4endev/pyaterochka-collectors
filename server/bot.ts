@@ -1,11 +1,19 @@
 import { Bot, InlineKeyboard, Keyboard, type Context } from "grammy";
 import { db } from "./db";
+import { patchDefaultSettings } from "./lib/domain";
 import { HttpError } from "./lib/errors";
 import {
   createInvoiceFromPhoto,
   findCollectorByTelegram,
 } from "./lib/miniapp";
-import { getMiniAppUrl } from "./lib/telegram";
+import {
+  getMiniAppUrl,
+  patchTelegramRuntime,
+  refreshTelegramRuntime,
+} from "./lib/telegram";
+
+let currentBot: Bot | null = null;
+let restartChain: Promise<void> = Promise.resolve();
 
 function inlineAppButton(url: string): InlineKeyboard {
   return new InlineKeyboard().webApp("Открыть приложение", url);
@@ -34,7 +42,7 @@ async function sendGreeting(ctx: Context, withPersistentButton = false): Promise
       "Нажми «Открыть приложение» — сразу увидишь график, килограммы, сумму и все записи за период.",
     );
   } else {
-    lines.push("", "Мини-приложение пока не настроено (нужен MINIAPP_URL).");
+    lines.push("", "Мини-приложение пока не настроено. Организатор задаёт URL в админке.");
   }
   if (collector?.active) {
     lines.push("", "Фото накладной можно прислать сюда в чат — оно уйдёт на проверку.");
@@ -59,6 +67,29 @@ async function sendGreeting(ctx: Context, withPersistentButton = false): Promise
   });
 }
 
+async function bindCurrentChat(ctx: Context): Promise<void> {
+  const chat = ctx.chat;
+  const from = ctx.from;
+  if (!chat || !from) {
+    return;
+  }
+  if (chat.type === "private") {
+    await ctx.reply("Отправь /bind в группе, которую нужно привязать к админке.");
+    return;
+  }
+  const member = await ctx.getChatMember(from.id);
+  if (member.status !== "creator" && member.status !== "administrator") {
+    await ctx.reply("Привязать чат может только администратор группы.");
+    return;
+  }
+  const title = chat.title;
+  await patchDefaultSettings(db, {
+    groupChatId: String(chat.id),
+    groupChatTitle: title,
+  });
+  await ctx.reply(`Чат «${title}» привязан к админке сборщиков.`);
+}
+
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
 
@@ -70,6 +101,25 @@ export function createBot(token: string): Bot {
   });
   bot.command("app", async (ctx) => {
     await sendGreeting(ctx);
+  });
+  bot.command("bind", async (ctx) => {
+    await bindCurrentChat(ctx);
+  });
+
+  bot.on("my_chat_member", async (ctx) => {
+    const next = ctx.myChatMember.new_chat_member.status;
+    const prev = ctx.myChatMember.old_chat_member.status;
+    const joined =
+      (next === "member" || next === "administrator") &&
+      (prev === "left" || prev === "kicked");
+    if (!joined || ctx.chat.type === "private") {
+      return;
+    }
+    try {
+      await ctx.reply("Чтобы привязать этот чат к админке сборщиков, отправьте /bind");
+    } catch {
+      // Bot may not be allowed to post yet.
+    }
   });
 
   bot.on("message:photo", async (ctx) => {
@@ -141,34 +191,92 @@ export function createBot(token: string): Bot {
   return bot;
 }
 
-export async function startBot(): Promise<void> {
-  const token = process.env.BOT_TOKEN?.trim();
+async function stopCurrentBot(): Promise<void> {
+  const previous = currentBot;
+  currentBot = null;
+  patchTelegramRuntime({ botRunning: false });
+  if (!previous) {
+    return;
+  }
+  try {
+    await previous.stop();
+  } catch (err) {
+    console.error("Failed to stop Telegram bot", err);
+  }
+}
+
+async function restartBotInner(): Promise<void> {
+  await stopCurrentBot();
+  const runtime = await refreshTelegramRuntime();
+  const token = runtime.botToken;
   if (!token) {
+    patchTelegramRuntime({ botUsername: null, botRunning: false });
     console.warn("BOT_TOKEN is not set — Telegram bot is skipped");
     return;
   }
   const bot = createBot(token);
-  const url = getMiniAppUrl();
-
-  await bot.api.setMyCommands([
-    { command: "start", description: "Приветствие и приложение" },
-    { command: "app", description: "Открыть мини-приложение" },
-    { command: "help", description: "Как пользоваться" },
-  ]);
-  if (url) {
-    await bot.api.setChatMenuButton({
-      menu_button: {
-        type: "web_app",
-        text: "Приложение",
-        web_app: { url },
-      },
-    });
+  currentBot = bot;
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "Приветствие и приложение" },
+      { command: "app", description: "Открыть мини-приложение" },
+      { command: "help", description: "Как пользоваться" },
+      { command: "bind", description: "Привязать группу к админке" },
+    ]);
+    const url = getMiniAppUrl();
+    if (url) {
+      await bot.api.setChatMenuButton({
+        menu_button: {
+          type: "web_app",
+          text: "Приложение",
+          web_app: { url },
+        },
+      });
+    } else {
+      await bot.api.setChatMenuButton({
+        menu_button: { type: "default" },
+      });
+    }
+    const me = await bot.api.getMe();
+    patchTelegramRuntime({ botUsername: me.username, botRunning: true });
+  } catch (err) {
+    currentBot = null;
+    patchTelegramRuntime({ botUsername: null, botRunning: false });
+    throw err;
   }
 
-  await bot.start({
-    drop_pending_updates: true,
-    onStart: (info) => {
-      console.log(`Bot @${info.username} polling`);
-    },
-  });
+  void bot
+    .start({
+      drop_pending_updates: true,
+      onStart: (info) => {
+        console.log(`Bot @${info.username} polling`);
+      },
+    })
+    .catch((err) => {
+      console.error("Bot polling error", err);
+      if (currentBot === bot) {
+        currentBot = null;
+        patchTelegramRuntime({ botRunning: false });
+      }
+    });
+}
+
+export function restartBot(): Promise<void> {
+  restartChain = restartChain.then(
+    () => restartBotInner(),
+    () => restartBotInner(),
+  );
+  return restartChain;
+}
+
+export function stopBot(): Promise<void> {
+  restartChain = restartChain.then(
+    () => stopCurrentBot(),
+    () => stopCurrentBot(),
+  );
+  return restartChain;
+}
+
+export async function startBot(): Promise<void> {
+  await restartBot();
 }

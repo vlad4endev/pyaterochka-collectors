@@ -1,4 +1,6 @@
 import { createHmac } from "node:crypto";
+import { db } from "../db";
+import { getSettings } from "./domain";
 import { HttpError, timingSafeEqualString } from "./errors";
 
 const INIT_DATA_MAX_AGE_SEC = 24 * 60 * 60;
@@ -10,24 +12,190 @@ export type TelegramUser = {
   username?: string;
 };
 
-export function getBotToken(): string {
-  const token = process.env.BOT_TOKEN?.trim();
-  if (!token) {
-    throw new HttpError("BOT_TOKEN is not configured", 500);
-  }
-  return token;
+export type TelegramRuntime = {
+  botToken: string | null;
+  miniAppUrl: string | null;
+  botUsername: string | null;
+  botRunning: boolean;
+};
+
+export type TelegramStatus = {
+  botTokenSet: boolean;
+  botTokenSource: "database" | "env" | null;
+  botUsername: string | null;
+  botRunning: boolean;
+  miniAppUrl: string | null;
+  groupChatId: string | null;
+  groupChatTitle: string | null;
+};
+
+let runtime: TelegramRuntime = {
+  botToken: null,
+  miniAppUrl: null,
+  botUsername: null,
+  botRunning: false,
+};
+
+export function patchTelegramRuntime(partial: Partial<TelegramRuntime>): void {
+  runtime = { ...runtime, ...partial };
 }
 
-export function getMiniAppUrl(): string | null {
-  const url = process.env.MINIAPP_URL?.trim().replace(/\/$/, "") ?? "";
+export function normalizeMiniAppUrl(raw: string | null | undefined): string | null {
+  const url = raw?.trim().replace(/\/$/, "") ?? "";
   if (!url) {
     return null;
   }
   if (!url.startsWith("https://")) {
-    console.warn("MINIAPP_URL must be an https URL — Mini App button is skipped");
     return null;
   }
   return url;
+}
+
+export function assertMiniAppUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/$/, "");
+  if (!trimmed.startsWith("https://")) {
+    throw new HttpError("MINIAPP_URL must be an https URL");
+  }
+  try {
+    new URL(trimmed);
+  } catch {
+    throw new HttpError("MINIAPP_URL must be an https URL");
+  }
+  return trimmed;
+}
+
+export function assertGroupChatId(raw: string): string {
+  const trimmed = raw.trim();
+  if (!/^-?\d{5,20}$/.test(trimmed)) {
+    throw new HttpError("Invalid group chat ID");
+  }
+  return trimmed;
+}
+
+export async function refreshTelegramRuntime(): Promise<TelegramRuntime> {
+  const settings = await getSettings(db);
+  const botToken = settings?.botToken?.trim() || process.env.BOT_TOKEN?.trim() || null;
+  const miniAppUrl = normalizeMiniAppUrl(
+    settings?.miniAppUrl?.trim() || process.env.MINIAPP_URL?.trim() || "",
+  );
+  runtime = {
+    ...runtime,
+    botToken,
+    miniAppUrl,
+    botUsername: botToken ? runtime.botUsername : null,
+    botRunning: botToken ? runtime.botRunning : false,
+  };
+  return runtime;
+}
+
+export async function getBotToken(): Promise<string> {
+  if (!runtime.botToken) {
+    await refreshTelegramRuntime();
+  }
+  if (!runtime.botToken) {
+    throw new HttpError("BOT_TOKEN is not configured", 500);
+  }
+  return runtime.botToken;
+}
+
+export function getMiniAppUrl(): string | null {
+  return runtime.miniAppUrl;
+}
+
+export async function fetchBotIdentity(token: string): Promise<{ username: string; id: number }> {
+  const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+  const payload: unknown = await response.json().catch(() => null);
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("ok" in payload) ||
+    payload.ok !== true ||
+    !("result" in payload) ||
+    typeof payload.result !== "object" ||
+    payload.result === null ||
+    !("username" in payload.result) ||
+    typeof payload.result.username !== "string" ||
+    !("id" in payload.result) ||
+    typeof payload.result.id !== "number"
+  ) {
+    throw new HttpError("Invalid bot token");
+  }
+  return { username: payload.result.username, id: payload.result.id };
+}
+
+export async function fetchChatTitle(token: string, chatId: string): Promise<string | null> {
+  const response = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId }),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("ok" in payload) ||
+    payload.ok !== true ||
+    !("result" in payload) ||
+    typeof payload.result !== "object" ||
+    payload.result === null
+  ) {
+    throw new HttpError("Chat not found");
+  }
+  const result = payload.result;
+  if ("title" in result && typeof result.title === "string") {
+    return result.title;
+  }
+  if ("username" in result && typeof result.username === "string") {
+    return `@${result.username}`;
+  }
+  return null;
+}
+
+export async function sendTelegramMessage(chatId: string, text: string): Promise<void> {
+  const token = await getBotToken();
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("ok" in payload) ||
+    payload.ok !== true
+  ) {
+    const description =
+      typeof payload === "object" &&
+      payload !== null &&
+      "description" in payload &&
+      typeof payload.description === "string"
+        ? payload.description.toLowerCase()
+        : "";
+    if (
+      description.includes("can't initiate conversation") ||
+      description.includes("bot was blocked")
+    ) {
+      throw new HttpError("Collector has not started the bot");
+    }
+    throw new HttpError("Failed to send Telegram message", 503);
+  }
+}
+
+export async function getTelegramStatus(): Promise<TelegramStatus> {
+  await refreshTelegramRuntime();
+  const settings = await getSettings(db);
+  const dbToken = settings?.botToken?.trim() || null;
+  const envToken = process.env.BOT_TOKEN?.trim() || null;
+  return {
+    botTokenSet: Boolean(runtime.botToken),
+    botTokenSource: dbToken ? "database" : envToken ? "env" : null,
+    botUsername: runtime.botUsername,
+    botRunning: runtime.botRunning,
+    miniAppUrl: runtime.miniAppUrl,
+    groupChatId: settings?.groupChatId ?? null,
+    groupChatTitle: settings?.groupChatTitle ?? null,
+  };
 }
 
 export function verifyTelegramInitData(

@@ -13,6 +13,7 @@ import {
   assertWindowHour,
   getOpenPeriod,
   getSettings,
+  patchDefaultSettings,
   normalizeName,
   normalizeOptionalTelegram,
   requireCollector,
@@ -26,14 +27,24 @@ import {
   randomSessionToken,
   timingSafeEqualString,
 } from "./lib/errors";
-import { buildSummary } from "./lib/messages";
+import { assertReminderKind, buildReminder, buildSummary } from "./lib/messages";
 import {
   createCollectorCreditEntry,
   createCollectorManualEntry,
   getMiniHome,
   requireActiveCollector,
 } from "./lib/miniapp";
-import { getBotToken, verifyTelegramInitData } from "./lib/telegram";
+import { restartBot } from "./bot";
+import {
+  assertGroupChatId,
+  assertMiniAppUrl,
+  fetchBotIdentity,
+  fetchChatTitle,
+  getBotToken,
+  getTelegramStatus,
+  sendTelegramMessage,
+  verifyTelegramInitData,
+} from "./lib/telegram";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -45,9 +56,14 @@ type MiniVariables = {
   collector: Collector | null;
 };
 
-export const app = new Hono<{ Variables: Variables }>().basePath("/api");
+export const app = new Hono<{ Variables: Variables }>();
 
 app.use("*", cors());
+
+app.get("/health", async (c) => {
+  await db.$queryRaw`SELECT 1`;
+  return c.json({ ok: true });
+});
 
 app.onError((err, c) => {
   if (err instanceof HttpError) {
@@ -382,6 +398,7 @@ authed.get("/payments", async (c) => {
       amountRub: kg * period.rate,
       paidAt: payment?.paidAt?.getTime() ?? null,
       paymentId: payment?.id ?? null,
+      hasTelegram: Boolean(collector?.telegramUserId),
     });
   }
   rows.sort((a, b) => a.collectorName.localeCompare(b.collectorName, "ru"));
@@ -441,12 +458,84 @@ authed.put("/settings", async (c) => {
   if (windowStart >= windowEnd) {
     throw new HttpError("windowStart must be before windowEnd");
   }
-  const groupChatId = body.groupChatId?.trim() || null;
+  const groupChatId =
+    body.groupChatId !== undefined ? body.groupChatId.trim() || null : undefined;
   await db.settings.upsert({
     where: { key: "default" },
-    update: { bank, payTo, deadlineText, windowStart, windowEnd, groupChatId },
-    create: { key: "default", bank, payTo, deadlineText, windowStart, windowEnd, groupChatId },
+    update: {
+      bank,
+      payTo,
+      deadlineText,
+      windowStart,
+      windowEnd,
+      ...(groupChatId !== undefined ? { groupChatId } : {}),
+    },
+    create: {
+      key: "default",
+      bank,
+      payTo,
+      deadlineText,
+      windowStart,
+      windowEnd,
+      groupChatId: groupChatId ?? null,
+    },
   });
+  return c.json(null);
+});
+
+authed.get("/telegram", async (c) => {
+  return c.json(await getTelegramStatus());
+});
+
+authed.put("/telegram/bot", async (c) => {
+  const body = await c.req.json<{ botToken?: string; miniAppUrl?: string }>();
+  const current = await getSettings(db);
+  let botToken = current?.botToken ?? null;
+  if (typeof body.botToken === "string" && body.botToken.trim().length > 0) {
+    await fetchBotIdentity(body.botToken.trim());
+    botToken = body.botToken.trim();
+  }
+  const miniAppUrl =
+    body.miniAppUrl === undefined
+      ? (current?.miniAppUrl ?? null)
+      : body.miniAppUrl.trim()
+        ? assertMiniAppUrl(body.miniAppUrl)
+        : null;
+  await patchDefaultSettings(db, { botToken, miniAppUrl });
+  await restartBot();
+  return c.json(await getTelegramStatus());
+});
+
+authed.post("/telegram/bot/clear", async (c) => {
+  await patchDefaultSettings(db, { botToken: null });
+  await restartBot();
+  return c.json(await getTelegramStatus());
+});
+
+authed.put("/telegram/chat", async (c) => {
+  const body = await c.req.json<{ groupChatId?: string }>();
+  const groupChatId = assertGroupChatId(body.groupChatId ?? "");
+  const token = await getBotToken();
+  const groupChatTitle = await fetchChatTitle(token, groupChatId);
+  await patchDefaultSettings(db, { groupChatId, groupChatTitle });
+  return c.json(await getTelegramStatus());
+});
+
+authed.post("/telegram/chat/unlink", async (c) => {
+  await patchDefaultSettings(db, { groupChatId: null, groupChatTitle: null });
+  return c.json(await getTelegramStatus());
+});
+
+authed.post("/telegram/test", async (c) => {
+  const settings = await getSettings(db);
+  const chatId = settings?.groupChatId;
+  if (!chatId) {
+    throw new HttpError("Group chat is not linked");
+  }
+  await sendTelegramMessage(
+    chatId,
+    "Бот сборщиков привязан. Сообщения из админки будут приходить сюда.",
+  );
   return c.json(null);
 });
 
@@ -458,11 +547,55 @@ authed.get("/messages/summary", async (c) => {
   return c.json(await buildSummary(db, periodId));
 });
 
+authed.post("/messages/summary/send", async (c) => {
+  const body = await c.req.json<{ periodId?: string }>();
+  const periodId = body.periodId ?? "";
+  const settings = await getSettings(db);
+  const chatId = settings?.groupChatId;
+  if (!chatId) {
+    throw new HttpError("Group chat is not linked");
+  }
+  const summary = await buildSummary(db, periodId);
+  await sendTelegramMessage(chatId, summary.text);
+  return c.json(null);
+});
+
+authed.get("/messages/remind", async (c) => {
+  const periodId = c.req.query("periodId");
+  const collectorId = c.req.query("collectorId");
+  const kind = assertReminderKind(c.req.query("kind") ?? "");
+  if (!periodId || !collectorId) {
+    throw new HttpError("periodId and collectorId are required");
+  }
+  const reminder = await buildReminder(db, periodId, collectorId, kind);
+  return c.json({
+    text: reminder.text,
+    canSend: Boolean(reminder.chatId),
+  });
+});
+
+authed.post("/messages/remind", async (c) => {
+  const body = await c.req.json<{
+    periodId?: string;
+    collectorId?: string;
+    kind?: string;
+  }>();
+  const periodId = body.periodId ?? "";
+  const collectorId = body.collectorId ?? "";
+  const kind = assertReminderKind(body.kind ?? "");
+  const reminder = await buildReminder(db, periodId, collectorId, kind);
+  if (!reminder.chatId) {
+    throw new HttpError("Collector has no Telegram ID");
+  }
+  await sendTelegramMessage(reminder.chatId, reminder.text);
+  return c.json(null);
+});
+
 const mini = new Hono<{ Variables: MiniVariables }>();
 mini.use("*", async (c, next) => {
   const header = c.req.header("Authorization");
   const initData = header?.startsWith("tma ") ? header.slice(4) : undefined;
-  const user = verifyTelegramInitData(initData, getBotToken());
+  const user = verifyTelegramInitData(initData, await getBotToken());
   const collector = await db.collector.findFirst({
     where: { telegramUserId: String(user.id) },
   });

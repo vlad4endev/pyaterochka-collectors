@@ -11,6 +11,7 @@ import { LoginPage } from "./pages/Login";
 import { MiniAppPage } from "./pages/MiniApp";
 import { ParticipantsPage } from "./pages/Participants";
 import { SettingsPage } from "./pages/Settings";
+import { TelegramPage } from "./pages/Telegram";
 import { useSession } from "./session";
 import { getTelegramWebApp } from "./lib/telegram";
 
@@ -93,7 +94,7 @@ function AuthedApp() {
       onPeriod={setPeriodId}
       onLogout={() => void onLogout()}
     >
-      {!periodId && section !== "settings" && section !== "participants" ? (
+      {!periodId && section !== "settings" && section !== "participants" && section !== "telegram" ? (
         <div className="card">
           <h2>Нет периода</h2>
           <div className="h2-sub" style={{ marginBottom: 0 }}>
@@ -107,6 +108,7 @@ function AuthedApp() {
       {section === "history" && periodId ? (
         <HistoryPage periodId={periodId} periodOpen={selected?.status === "open"} />
       ) : null}
+      {section === "telegram" ? <TelegramPage /> : null}
       {section === "settings" ? <SettingsPage /> : null}
     </Shell>
   );

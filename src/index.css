@@ -307,6 +307,7 @@ h1.page-title {
 .gap-item {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   padding: 8px 0;
   border-top: 1px solid #e6e6e9;
   font-size: 13px;
@@ -318,6 +319,33 @@ h1.page-title {
 .gap-item .d {
   color: #8b8b8b;
   font-size: 12px;
+}
+.gap-item .dates {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #8b8b8b;
+  font-size: 12px;
+  text-align: right;
+}
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.btn-quiet {
+  background: #fff;
+  color: #2481cc;
+  border: 1px solid #d8dfe6;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
 }
 .empty {
   font-size: 13px;
@@ -351,7 +379,8 @@ h1.page-title {
 .btn-primary:disabled,
 .btn-secondary:disabled,
 .btn-confirm:disabled,
-.btn-reject:disabled {
+.btn-reject:disabled,
+.btn-quiet:disabled {
   opacity: 0.55;
   cursor: default;
 }
@@ -643,4 +672,43 @@ body.tg-miniapp {
 
 .miniapp .btn-primary {
   width: 100%;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.status-line {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 14px;
+}
+
+.steps {
+  margin: 0 0 16px;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #444;
+  line-height: 1.5;
+}
+
+.steps li + li {
+  margin-top: 6px;
+}
+
+.chat-bound {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.chat-bound .chat-id {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #8b8b8b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

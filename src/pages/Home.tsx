@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { IconPhoto } from "../components/Icons";
-import { api } from "../lib/api";
+import { api, type Dashboard } from "../lib/api";
 import {
   dayName,
   errorMessage,
@@ -14,6 +14,31 @@ import { useSession } from "../session";
 type Props = {
   periodId: string;
 };
+
+type GapGroup = {
+  collectorId: string;
+  collectorName: string;
+  hasTelegram: boolean;
+  dates: string[];
+};
+
+function groupGaps(gaps: Dashboard["gaps"]): GapGroup[] {
+  const groups = new Map<string, GapGroup>();
+  for (const gap of gaps) {
+    const existing = groups.get(gap.collectorId);
+    if (existing) {
+      existing.dates.push(gap.date);
+    } else {
+      groups.set(gap.collectorId, {
+        collectorId: gap.collectorId,
+        collectorName: gap.collectorName,
+        hasTelegram: gap.hasTelegram,
+        dates: [gap.date],
+      });
+    }
+  }
+  return [...groups.values()];
+}
 
 export function HomePage({ periodId }: Props) {
   const { token, refreshData } = useSession();
@@ -107,6 +132,52 @@ export function HomePage({ periodId }: Props) {
     }
     await navigator.clipboard.writeText(summary.text);
     setToast("Скопировано");
+  }
+
+  async function sendSummary() {
+    if (!token) {
+      return;
+    }
+    setError(null);
+    setBusyId("summary");
+    try {
+      await api.sendSummary(token, periodId);
+      setToast("Отправлено в группу ✓");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remind(collectorId: string, kind: "report" | "payment", canSend: boolean) {
+    if (!token) {
+      return;
+    }
+    const busyKey = `remind-${kind}-${collectorId}`;
+    setError(null);
+    setToast(null);
+    setBusyId(busyKey);
+    try {
+      if (canSend) {
+        await api.sendReminder(token, periodId, collectorId, kind);
+        setToast("Напоминание отправлено ✓");
+        return;
+      }
+      const preview = await api.reminderPreview(token, periodId, collectorId, kind);
+      await navigator.clipboard.writeText(preview.text);
+      setToast("Нет Telegram ID — текст скопирован");
+    } catch (err) {
+      try {
+        const preview = await api.reminderPreview(token, periodId, collectorId, kind);
+        await navigator.clipboard.writeText(preview.text);
+        setError(`${errorMessage(err)}. Текст скопирован.`);
+      } catch {
+        setError(errorMessage(err));
+      }
+    } finally {
+      setBusyId(null);
+    }
   }
 
   if (dashboard === undefined) {
@@ -204,16 +275,37 @@ export function HomePage({ periodId }: Props) {
         <h2>
           Пропуски <span className="badge info">{dashboard.gaps.length}</span>
         </h2>
-        <div className="h2-sub">Дни по графику без единой записи</div>
+        <div className="h2-sub">
+          Дни по графику без записи. Напоминание уходит в личку, если у участника есть Telegram ID и
+          он хотя бы раз открыл бота.
+        </div>
         {dashboard.gaps.length === 0 ? (
           <div className="empty">Пропусков нет</div>
         ) : (
-          dashboard.gaps.map((gap) => (
-            <div className="gap-item" key={`${gap.collectorId}-${gap.date}`}>
-              <span>{gap.collectorName}</span>
-              <span className="d">
-                {fmtShort(gap.date)} · {dayName(gap.date)}
-              </span>
+          groupGaps(dashboard.gaps).map((group) => (
+            <div className="gap-item" key={group.collectorId}>
+              <span>{group.collectorName}</span>
+              <div className="row-actions">
+                <span className="dates">
+                  {group.dates.map((date) => (
+                    <span key={date}>
+                      {fmtShort(date)} · {dayName(date)}
+                    </span>
+                  ))}
+                </span>
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  disabled={busyId === `remind-report-${group.collectorId}`}
+                  onClick={() => void remind(group.collectorId, "report", group.hasTelegram)}
+                >
+                  {busyId === `remind-report-${group.collectorId}`
+                    ? "…"
+                    : group.hasTelegram
+                      ? "Напомнить"
+                      : "Скопировать"}
+                </button>
+              </div>
             </div>
           ))
         )}
@@ -221,7 +313,7 @@ export function HomePage({ periodId }: Props) {
 
       <div className="card">
         <h2>Переводы</h2>
-        <div className="h2-sub">Отметь, кто уже перевёл за период</div>
+        <div className="h2-sub">Отметь, кто уже перевёл за период. Неоплаченным можно напомнить в личку.</div>
         {payments === undefined ? (
           <div className="loading">Загрузка…</div>
         ) : payments.length === 0 ? (
@@ -243,18 +335,36 @@ export function HomePage({ periodId }: Props) {
                   <td>{formatKg(row.kg)} кг</td>
                   <td>{formatRub(row.amountRub)} ₽</td>
                   <td>
-                    {row.paidAt ? (
-                      <span className="badge ok">перевёл</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="toggle-pill off"
-                        disabled={busyId === row.collectorId}
-                        onClick={() => void onPaid(row.collectorId)}
-                      >
-                        отметить
-                      </button>
-                    )}
+                    <div className="row-actions">
+                      {row.paidAt ? (
+                        <span className="badge ok">перевёл</span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="toggle-pill off"
+                            disabled={busyId === row.collectorId}
+                            onClick={() => void onPaid(row.collectorId)}
+                          >
+                            отметить
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-quiet"
+                            disabled={busyId === `remind-payment-${row.collectorId}`}
+                            onClick={() =>
+                              void remind(row.collectorId, "payment", row.hasTelegram)
+                            }
+                          >
+                            {busyId === `remind-payment-${row.collectorId}`
+                              ? "…"
+                              : row.hasTelegram
+                                ? "Напомнить"
+                                : "Скопировать"}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -278,15 +388,24 @@ export function HomePage({ periodId }: Props) {
                 <button type="button" className="btn-secondary" onClick={() => void copySummary()}>
                   Скопировать
                 </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={busyId === "summary"}
+                  onClick={() => void sendSummary()}
+                >
+                  {busyId === "summary" ? "Отправляем…" : "Отправить в группу"}
+                </button>
               </div>
               <div className="h2-sub" style={{ marginTop: 10, marginBottom: 0 }}>
-                Отправка в группу ещё не подключена — скопируйте текст и вставьте в чат сами.
+                Чат настраивается в разделе Telegram. Если группа не привязана, можно скопировать текст
+                вручную.
               </div>
-              {toast ? <div className="toast">{toast}</div> : null}
             </>
           )}
         </div>
       ) : null}
+      {toast ? <div className="toast">{toast}</div> : null}
       {error ? <div className="err">{error}</div> : null}
     </>
   );

@@ -47,6 +47,7 @@ export type PaymentRow = {
   amountRub: number;
   paidAt: number | null;
   paymentId: string | null;
+  hasTelegram: boolean;
 };
 
 export type Settings = {
@@ -57,6 +58,16 @@ export type Settings = {
   windowStart: number;
   windowEnd: number;
   groupChatId?: string;
+};
+
+export type TelegramStatus = {
+  botTokenSet: boolean;
+  botTokenSource: "database" | "env" | null;
+  botUsername: string | null;
+  botRunning: boolean;
+  miniAppUrl: string | null;
+  groupChatId: string | null;
+  groupChatTitle: string | null;
 };
 
 export type MiniEntry = {
@@ -121,7 +132,12 @@ export type Dashboard = {
   expectedRub: number;
   percent: number;
   pendingCount: number;
-  gaps: Array<{ collectorId: string; collectorName: string; date: string }>;
+  gaps: Array<{
+    collectorId: string;
+    collectorName: string;
+    date: string;
+    hasTelegram: boolean;
+  }>;
   calendar: Array<{
     date: string;
     weekday: number;
@@ -227,11 +243,57 @@ export const api = {
       },
     ) => apiRequest<null>("/settings", { method: "PUT", token, body }),
   },
+  telegram: {
+    get: (token: string) => apiRequest<TelegramStatus>("/telegram", { token }),
+    saveBot: (
+      token: string,
+      body: { botToken?: string; miniAppUrl?: string },
+    ) => apiRequest<TelegramStatus>("/telegram/bot", { method: "PUT", token, body }),
+    clearBot: (token: string) =>
+      apiRequest<TelegramStatus>("/telegram/bot/clear", { method: "POST", token }),
+    linkChat: (token: string, groupChatId: string) =>
+      apiRequest<TelegramStatus>("/telegram/chat", {
+        method: "PUT",
+        token,
+        body: { groupChatId },
+      }),
+    unlinkChat: (token: string) =>
+      apiRequest<TelegramStatus>("/telegram/chat/unlink", { method: "POST", token }),
+    test: (token: string) =>
+      apiRequest<null>("/telegram/test", { method: "POST", token }),
+  },
   summary: (token: string, periodId: string) =>
     apiRequest<{ text: string; totalKg: number; totalRub: number }>(
       `/messages/summary?periodId=${encodeURIComponent(periodId)}`,
       { token },
     ),
+  sendSummary: (token: string, periodId: string) =>
+    apiRequest<null>("/messages/summary/send", {
+      method: "POST",
+      token,
+      body: { periodId },
+    }),
+  reminderPreview: (
+    token: string,
+    periodId: string,
+    collectorId: string,
+    kind: "report" | "payment",
+  ) =>
+    apiRequest<{ text: string; canSend: boolean }>(
+      `/messages/remind?periodId=${encodeURIComponent(periodId)}&collectorId=${encodeURIComponent(collectorId)}&kind=${kind}`,
+      { token },
+    ),
+  sendReminder: (
+    token: string,
+    periodId: string,
+    collectorId: string,
+    kind: "report" | "payment",
+  ) =>
+    apiRequest<null>("/messages/remind", {
+      method: "POST",
+      token,
+      body: { periodId, collectorId, kind },
+    }),
   miniapp: {
     home: (initData: string) =>
       apiRequest<MiniHome>("/miniapp/home", { telegramInitData: initData }),

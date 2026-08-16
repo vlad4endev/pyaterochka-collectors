@@ -5,10 +5,11 @@ import {
   IconHistory,
   IconHome,
   IconSettings,
+  IconTelegram,
   IconUsers,
 } from "./Icons";
 
-export type SectionId = "home" | "calendar" | "participants" | "history" | "settings";
+export type SectionId = "home" | "calendar" | "participants" | "history" | "telegram" | "settings";
 
 const NAV: Array<{
   id: SectionId;
@@ -19,6 +20,7 @@ const NAV: Array<{
   { id: "calendar", label: "Календарь", icon: <IconCalendar /> },
   { id: "participants", label: "Участники", icon: <IconUsers /> },
   { id: "history", label: "История", icon: <IconHistory /> },
+  { id: "telegram", label: "Telegram", icon: <IconTelegram /> },
   { id: "settings", label: "Настройки", icon: <IconSettings /> },
 ];
 
