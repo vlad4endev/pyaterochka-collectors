@@ -6,6 +6,7 @@ RUN npm ci
 COPY prisma ./prisma
 RUN npx prisma generate
 COPY index.html vite.config.ts tsconfig.json tsconfig.app.json ./
+COPY public ./public
 COPY src ./src
 COPY server ./server
 RUN npm run build

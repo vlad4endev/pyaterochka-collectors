@@ -42,6 +42,10 @@ if (serveFrontend) {
     if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
       return c.notFound();
     }
+    const fileName = c.req.path.split("/").pop() ?? "";
+    if (fileName.includes(".")) {
+      return c.notFound();
+    }
     const html = await readFile(indexPath, "utf8");
     return c.html(html);
   });
