@@ -160,7 +160,7 @@ export function MiniAppPage() {
     return () => {
       cancelled = true;
     };
-  }, [initData, epoch]);
+  }, [initData, platform, epoch]);
 
   useEffect(() => {
     if (!photo) {
@@ -322,8 +322,8 @@ export function MiniAppPage() {
         <div className="ma-panel">
           <BrandLogo className="ma-logo" size={48} />
           <div className="ma-kicker">Пятёрка на бульваре</div>
-          <h1 className="ma-title">Открой из Telegram</h1>
-          <p className="ma-lead">Нажми «ВНЕСТИ» в боте — подтянутся кг и сумма.</p>
+          <h1 className="ma-title">Открой из бота</h1>
+          <p className="ma-lead">Нажми «ВНЕСТИ» в Telegram или MAX — подтянутся кг и сумма.</p>
         </div>
       </div>
     );

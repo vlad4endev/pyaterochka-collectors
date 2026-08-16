@@ -19,6 +19,7 @@ export function ParticipantsPage() {
   const [name, setName] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState("");
   const [telegramUserId, setTelegramUserId] = useState("");
+  const [maxUserId, setMaxUserId] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function patch(
@@ -27,6 +28,7 @@ export function ParticipantsPage() {
       name?: string;
       dayOfWeek?: number | null;
       telegramUserId?: string;
+      maxUserId?: string;
       active?: boolean;
     },
   ) {
@@ -54,11 +56,13 @@ export function ParticipantsPage() {
         name,
         dayOfWeek: dayOfWeek === "" ? null : Number(dayOfWeek),
         telegramUserId: telegramUserId.trim() || undefined,
+        maxUserId: maxUserId.trim() || undefined,
       });
       refreshData();
       setName("");
       setDayOfWeek("");
       setTelegramUserId("");
+      setMaxUserId("");
       setShowAdd(false);
       setToast("Участник добавлен");
     } catch (err) {
@@ -72,7 +76,7 @@ export function ParticipantsPage() {
     <>
       <PageHeader
         title="Участники"
-        sub="День недели нужен, чтобы админка сама видела пропуски. Имя и Telegram ID правятся прямо в таблице."
+        sub="День недели нужен, чтобы админка сама видела пропуски. Имя, Telegram ID и MAX ID правятся прямо в таблице."
         actions={
           showAdd ? undefined : (
             <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}>
@@ -94,6 +98,7 @@ export function ParticipantsPage() {
                   <th>Имя</th>
                   <th>День</th>
                   <th>Telegram ID</th>
+                  <th>MAX ID</th>
                   <th></th>
                 </tr>
               </thead>
@@ -137,6 +142,18 @@ export function ParticipantsPage() {
                           const next = event.target.value.trim();
                           if (next !== (collector.telegramUserId ?? "")) {
                             void patch(collector._id, { telegramUserId: next });
+                          }
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        defaultValue={collector.maxUserId ?? ""}
+                        placeholder="не привязан"
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next !== (collector.maxUserId ?? "")) {
+                            void patch(collector._id, { maxUserId: next });
                           }
                         }}
                       />
@@ -191,6 +208,15 @@ export function ParticipantsPage() {
                 id="cTg"
                 value={telegramUserId}
                 onChange={(event) => setTelegramUserId(event.target.value)}
+                placeholder="необязательно"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="cMax">MAX ID</label>
+              <input
+                id="cMax"
+                value={maxUserId}
+                onChange={(event) => setMaxUserId(event.target.value)}
                 placeholder="необязательно"
               />
             </div>

@@ -1,6 +1,6 @@
 # Сборщики «Пятёрка»
 
-Админка, Telegram-бот и Mini App для учёта килограммов и выплат. Один процесс в проде: API, статика и бот.
+Админка, Telegram-бот, MAX-бот и Mini App для учёта килограммов и выплат. Один процесс в проде: API, статика и боты.
 
 ## Локально
 
@@ -19,7 +19,7 @@ npm run dev
 
 ## Деплой (Docker)
 
-Нужен сервер с Docker и публичный **https**-адрес (Telegram Mini App без TLS не откроется). Пароль Postgres в URL не должен содержать `@ : / #`.
+Нужен сервер с Docker и публичный **https**-адрес (Mini App в Telegram и MAX без TLS не откроется). Пароль Postgres в URL не должен содержать `@ : / #`.
 
 1. Скопируйте `.env.example` в `.env` и задайте `ADMIN_PASSWORD`, `POSTGRES_PASSWORD`.
 2. `MINIAPP_URL` — публичный https URL, который смотрит на контейнер `app` (порт `PORT`, по умолчанию 3001).
@@ -36,8 +36,11 @@ npm run prod:up
 
 1. Откройте админку по https, войдите с `ADMIN_PASSWORD`.
 2. Раздел **Telegram**: при необходимости HTTP/SOCKS5 прокси, токен бота и URL Mini App.
-3. Добавьте бота в группу и отправьте `/bind`.
+3. Добавьте Telegram-бота в группу и отправьте `/bind`.
 4. В @BotFather: Menu Button → тот же https URL.
+5. Раздел **MAX**: токен чат-бота из [Master Bot](https://max.ru/masterbot) и тот же URL Mini App.
+6. В кабинете MAX привяжите Mini App к чат-боту (расширенные настройки, только https).
+7. Добавьте MAX-бота в группу и отправьте `/bind`. Mini App открывается только кнопкой в боте, не из браузера.
 
 Остановка: `npm run prod:down`. Том Postgres сохраняется.
 

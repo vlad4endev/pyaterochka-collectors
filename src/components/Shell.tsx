@@ -6,12 +6,20 @@ import {
   IconHistory,
   IconHome,
   IconLogout,
+  IconMax,
   IconSettings,
   IconTelegram,
   IconUsers,
 } from "./Icons";
 
-export type SectionId = "home" | "calendar" | "participants" | "history" | "telegram" | "settings";
+export type SectionId =
+  | "home"
+  | "calendar"
+  | "participants"
+  | "history"
+  | "telegram"
+  | "max"
+  | "settings";
 
 const WEEK_NAV: Array<{ id: SectionId; label: string; icon: ReactNode }> = [
   { id: "home", label: "Главная", icon: <IconHome /> },
@@ -22,6 +30,7 @@ const WEEK_NAV: Array<{ id: SectionId; label: string; icon: ReactNode }> = [
 const TEAM_NAV: Array<{ id: SectionId; label: string; icon: ReactNode }> = [
   { id: "participants", label: "Участники", icon: <IconUsers /> },
   { id: "telegram", label: "Telegram", icon: <IconTelegram /> },
+  { id: "max", label: "MAX", icon: <IconMax /> },
   { id: "settings", label: "Настройки", icon: <IconSettings /> },
 ];
 

@@ -45,6 +45,17 @@ export function IconTelegram() {
   );
 }
 
+export function IconMax() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <rect x="4" y="4" width="16" height="16" rx="5" />
+      <path d="M8 14.5c1.2 1.4 2.6 2 4 2s2.8-.6 4-2" />
+      <circle cx="9.2" cy="10" r="1" fill="currentColor" stroke="none" />
+      <circle cx="14.8" cy="10" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function IconSettings() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">

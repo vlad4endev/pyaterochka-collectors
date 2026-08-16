@@ -23,7 +23,7 @@ type Props = {
 type GapGroup = {
   collectorId: string;
   collectorName: string;
-  hasTelegram: boolean;
+  hasMessenger: boolean;
   dates: string[];
 };
 
@@ -117,7 +117,7 @@ function groupGaps(gaps: Dashboard["gaps"]): GapGroup[] {
       groups.set(gap.collectorId, {
         collectorId: gap.collectorId,
         collectorName: gap.collectorName,
-        hasTelegram: gap.hasTelegram,
+        hasMessenger: gap.hasTelegram || gap.hasMax,
         dates: [gap.date],
       });
     }
@@ -500,7 +500,7 @@ export function HomePage({ periodId, onPeriod }: Props) {
       }
       const preview = await api.reminderPreview(token, targetPeriodId, collectorId, kind);
       await navigator.clipboard.writeText(preview.text);
-      setToast("Нет Telegram ID — текст скопирован");
+      setToast("Нет ID в боте — текст скопирован");
     } catch (err) {
       try {
         const preview = await api.reminderPreview(token, targetPeriodId, collectorId, kind);
@@ -688,11 +688,11 @@ export function HomePage({ periodId, onPeriod }: Props) {
                     type="button"
                     className="btn-quiet"
                     disabled={busyId === `remind-report-${group.collectorId}`}
-                    onClick={() => void remind(group.collectorId, "report", group.hasTelegram)}
+                    onClick={() => void remind(group.collectorId, "report", group.hasMessenger)}
                   >
                     {busyId === `remind-report-${group.collectorId}`
                       ? "…"
-                      : group.hasTelegram
+                      : group.hasMessenger
                         ? "Напомнить"
                         : "Скопировать"}
                   </button>
@@ -797,7 +797,7 @@ export function HomePage({ periodId, onPeriod }: Props) {
           <div>
             <h2>Сводка в группу</h2>
             <p className="h2-sub" style={{ marginBottom: 0 }}>
-              Текст для Telegram. Если чат не привязан, можно скопировать вручную.
+              Текст для группы Telegram или MAX. Если чат не привязан, можно скопировать вручную.
             </p>
           </div>
           <button type="button" className="btn-secondary" onClick={() => setShowMessage((value) => !value)}>

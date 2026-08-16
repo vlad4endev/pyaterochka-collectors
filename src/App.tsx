@@ -8,15 +8,17 @@ import { CalendarPage } from "./pages/Calendar";
 import { HistoryPage } from "./pages/History";
 import { HomePage } from "./pages/Home";
 import { LoginPage } from "./pages/Login";
+import { MaxPage } from "./pages/Max";
 import { MiniAppPage } from "./pages/MiniApp";
 import { ParticipantsPage } from "./pages/Participants";
 import { SettingsPage } from "./pages/Settings";
 import { TelegramPage } from "./pages/Telegram";
 import { useSession } from "./session";
+import { getMaxWebApp } from "./lib/max";
 import { getTelegramWebApp } from "./lib/telegram";
 
 export function App() {
-  if (getTelegramWebApp()) {
+  if (getTelegramWebApp() || getMaxWebApp()) {
     return <MiniAppPage />;
   }
   return <SessionGate />;
@@ -94,7 +96,11 @@ function AuthedApp() {
       onPeriod={setPeriodId}
       onLogout={() => void onLogout()}
     >
-      {!periodId && section !== "settings" && section !== "participants" && section !== "telegram" ? (
+      {!periodId &&
+      section !== "settings" &&
+      section !== "participants" &&
+      section !== "telegram" &&
+      section !== "max" ? (
         <div className="card">
           <h2>Нет открытой недели</h2>
           <p className="h2-sub" style={{ marginBottom: 0 }}>
@@ -116,6 +122,7 @@ function AuthedApp() {
         />
       ) : null}
       {section === "telegram" ? <TelegramPage /> : null}
+      {section === "max" ? <MaxPage /> : null}
       {section === "settings" ? <SettingsPage /> : null}
     </Shell>
   );

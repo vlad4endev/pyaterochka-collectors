@@ -1054,7 +1054,9 @@ code {
 }
 
 html.tg-miniapp,
-body.tg-miniapp {
+body.tg-miniapp,
+html.max-miniapp,
+body.max-miniapp {
   background: #f3f0e8;
   color: #141714;
 }

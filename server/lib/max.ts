@@ -185,6 +185,16 @@ export async function getMaxStatus(): Promise<MaxStatus> {
   };
 }
 
+function asMaxUserId(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    return Number(value);
+  }
+  return null;
+}
+
 export function verifyMaxInitData(
   initData: string | undefined,
   botToken: string,
@@ -246,19 +256,31 @@ export function verifyMaxInitData(
   }
   if (
     typeof parsed !== "object" ||
-    parsed === null ||
-    !("id" in parsed) ||
-    typeof parsed.id !== "number" ||
-    !("first_name" in parsed) ||
-    typeof parsed.first_name !== "string"
+    parsed === null
   ) {
+    throw new HttpError("Invalid MAX initData", 401);
+  }
+  const id = asMaxUserId(
+    "id" in parsed
+      ? parsed.id
+      : "user_id" in parsed
+        ? parsed.user_id
+        : undefined,
+  );
+  const firstName =
+    "first_name" in parsed && typeof parsed.first_name === "string"
+      ? parsed.first_name
+      : "name" in parsed && typeof parsed.name === "string"
+        ? parsed.name
+        : null;
+  if (id == null || !firstName) {
     throw new HttpError("Invalid MAX initData", 401);
   }
   const username =
     "username" in parsed && typeof parsed.username === "string" ? parsed.username : undefined;
   return {
-    id: parsed.id,
-    firstName: parsed.first_name,
+    id,
+    firstName,
     username,
   };
 }

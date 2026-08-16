@@ -27,6 +27,7 @@ services:
       BOT_TOKEN: ${BOT_TOKEN:-}
       MINIAPP_URL: ${MINIAPP_URL:-}
       TELEGRAM_PROXY: ${TELEGRAM_PROXY:-}
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
     volumes:
       - invoices:/app/data/invoices
     depends_on:

@@ -127,7 +127,7 @@ export function SettingsPage() {
       </div>
 
       <div className="note-card">
-        Бот, мини-приложение и групповой чат — в разделе Telegram. Пароль админки хранится в{" "}
+        Бот, мини-приложение и групповой чат — в разделах Telegram и MAX. Пароль админки хранится в{" "}
         <code>.env</code> как <code>ADMIN_PASSWORD</code>, не в базе.
       </div>
       {error ? <div className="err">{error}</div> : null}
