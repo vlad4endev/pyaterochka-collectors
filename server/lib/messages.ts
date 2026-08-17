@@ -11,6 +11,18 @@ function fmtShort(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 }
 
+function formatKgLabel(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function amountLine(kg: number, rate: number, amountRub: number): string {
+  return `${formatKgLabel(kg)} кг × ${rate} ₽ = ${Math.round(amountRub)} ₽`;
+}
+
+function cardLines(bank: string, payTo: string, deadlineText: string): string[] {
+  return [`Карта ${bank}:`, payTo, deadlineText];
+}
+
 export type GreetingCollectorStatus = "active" | "inactive" | "unknown";
 
 export const MINI_APP_BUTTON = "ВНЕСТИ";
@@ -115,12 +127,13 @@ function formatInvoice(args: {
   deadlineText: string;
 }): string {
   return [
-    `${args.name}, выставлен счёт за ${fmtShort(args.startDate)}–${fmtShort(args.endDate)}.`,
+    `${args.name}, счёт за ${fmtShort(args.startDate)}–${fmtShort(args.endDate)}.`,
     "",
-    `${args.kg} кг × ${args.rate} = ${args.amountRub} ₽`,
+    amountLine(args.kg, args.rate, args.amountRub),
     "",
-    `Переводить на карту ${args.bank} (${args.payTo})`,
-    args.deadlineText,
+    ...cardLines(args.bank, args.payTo, args.deadlineText),
+    "",
+    "Когда переведёшь — напиши в общий чат.",
   ].join("\n");
 }
 
@@ -198,12 +211,13 @@ function formatPaymentReminder(args: {
   deadlineText: string;
 }): string {
   return [
-    `${args.name}, напоминание по переводу за ${fmtShort(args.startDate)}–${fmtShort(args.endDate)}.`,
+    `${args.name}, напоминание: перевод за ${fmtShort(args.startDate)}–${fmtShort(args.endDate)} ещё не отмечен.`,
     "",
-    `${args.kg} кг × ${args.rate} = ${args.amountRub} ₽ — пока не отмечен.`,
-    `Карта: ${args.bank} (${args.payTo}) ${args.deadlineText}`,
+    amountLine(args.kg, args.rate, args.amountRub),
     "",
-    "Если уже перевели — напишите в чат, отметим.",
+    ...cardLines(args.bank, args.payTo, args.deadlineText),
+    "",
+    "Если уже перевёл — напиши в общий чат.",
   ].join("\n");
 }
 
