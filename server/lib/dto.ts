@@ -38,6 +38,7 @@ export function settingsDto(row: Settings) {
     bank: row.bank,
     payTo: row.payTo,
     deadlineText: row.deadlineText,
+    kgRateRub: row.kgRateRub,
     windowStart: row.windowStart,
     windowEnd: row.windowEnd,
     groupChatId: row.groupChatId ?? undefined,

@@ -17,7 +17,6 @@ import {
   requireCollectorUnpaid,
   requireOpenPeriod,
   requireUnsettledPeriod,
-  KG_RATE_RUB,
   entryPayeeId,
 } from "./domain";
 import { HttpError } from "./errors";
@@ -269,7 +268,7 @@ export async function getMiniHome(
           _id: period.id,
           startDate: period.startDate,
           endDate: period.endDate,
-          rate: KG_RATE_RUB,
+          rate: period.rate,
           status: period.status,
         }
       : null,
@@ -357,7 +356,7 @@ export async function getMiniHome(
     ...base,
     me: {
       kg,
-      amountRub: kg * KG_RATE_RUB,
+      amountRub: kg * (period?.rate ?? 0),
       paidAt: payment?.paidAt?.getTime() ?? null,
       entries: itemRows,
       gaps,

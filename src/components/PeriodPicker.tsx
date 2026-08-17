@@ -161,8 +161,8 @@ export function PeriodPicker({ selectedId, periods, onSelect }: Props) {
                   {selected.kind === "previous" ? "Прошлая неделя" : "Текущая неделя"}
                 </h3>
                 <p className="h2-sub">
-                  Даты, сумма магазина и ставка. Если в периоде уже есть записи, новые даты должны их
-                  покрывать.
+                  Даты и сумма магазина. Ставка ₽/кг меняется в Настройках — здесь только если у этой
+                  недели своя цена.
                 </p>
                 <div className="grid2">
                   <div className="field">

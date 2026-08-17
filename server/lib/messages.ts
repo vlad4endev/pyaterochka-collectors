@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { getDashboard } from "./dashboard";
-import { KG_RATE_RUB, requireCollector, requirePeriod, requireSettings } from "./domain";
+import { requireCollector, requirePeriod, requireSettings } from "./domain";
 import { eachDateInclusive } from "./dates";
 import { HttpError } from "./errors";
 import { getPeriodSettlement, sumConfirmedKgForPayee } from "./payments";
@@ -271,8 +271,8 @@ export async function buildReminder(
       startDate: period.startDate,
       endDate: period.endDate,
       kg,
-      rate: KG_RATE_RUB,
-      amountRub: kg * KG_RATE_RUB,
+      rate: period.rate,
+      amountRub: kg * period.rate,
       bank: settings.bank,
       payTo: settings.payTo,
       deadlineText: settings.deadlineText,

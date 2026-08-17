@@ -139,6 +139,7 @@ const ERROR_RU: Record<string, string> = {
   "Name is required": "Укажите имя",
   "Invalid phone": "Некорректный номер телефона",
   "Bank, payTo and deadlineText are required": "Заполните банк, карту и дедлайн",
+  "rate must be greater than 0": "Укажите цену за кг больше нуля",
   "windowStart must be before windowEnd": "Начало окна должно быть раньше конца",
   "Collector has no confirmed kg in this period": "У участника нет подтверждённых кг",
   "Settlement does not match store invoice": "Итог участников не совпадает со счётом магазина",
@@ -199,7 +200,7 @@ const ERROR_RU: Record<string, string> = {
 export function errorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : "Неизвестная ошибка";
   const storeMismatch = raw.match(
-    /^Store invoice mismatch: (.+) kg × (\d+) = (.+), got (.+)$/,
+    /^Store invoice mismatch: (.+) kg × (.+) = (.+), got (.+)$/,
   );
   if (storeMismatch) {
     return `В счёте магазина кг и сумма не сходятся: ${storeMismatch[1]} кг × ${storeMismatch[2]} = ${storeMismatch[3]} ₽, указано ${storeMismatch[4]} ₽`;

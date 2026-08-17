@@ -36,7 +36,7 @@ import {
   timingSafeEqualString,
 } from "./lib/errors";
 import { assertReminderKind, buildReminder, buildSummary, sendSettlementInvoices } from "./lib/messages";
-import { createPeriodSettlement, getPeriodSettlement, markCollectorPaid, syncUnpaidCollectorPayment } from "./lib/payments";
+import { createPeriodSettlement, getPeriodSettlement, markCollectorPaid, syncUnpaidCollectorPayment, applyKgRateToCurrentWeek } from "./lib/payments";
 import {
   isUploadPhotoRef,
   loadInvoicePhoto,
@@ -600,6 +600,7 @@ authed.put("/settings", async (c) => {
     deadlineText?: string;
     windowStart?: number;
     windowEnd?: number;
+    kgRateRub?: number;
     groupChatId?: string;
   }>();
   const bank = (body.bank ?? "").trim();
@@ -613,14 +614,18 @@ authed.put("/settings", async (c) => {
   if (windowStart >= windowEnd) {
     throw new HttpError("windowStart must be before windowEnd");
   }
+  const kgRateRub = assertRate(Number(body.kgRateRub ?? 0));
   const groupChatId =
     body.groupChatId !== undefined ? body.groupChatId.trim() || null : undefined;
+  const existing = await getSettings(db);
+  const rateChanged = !existing || existing.kgRateRub !== kgRateRub;
   await db.settings.upsert({
     where: { key: "default" },
     update: {
       bank,
       payTo,
       deadlineText,
+      kgRateRub,
       windowStart,
       windowEnd,
       ...(groupChatId !== undefined ? { groupChatId } : {}),
@@ -630,11 +635,15 @@ authed.put("/settings", async (c) => {
       bank,
       payTo,
       deadlineText,
+      kgRateRub,
       windowStart,
       windowEnd,
       groupChatId: groupChatId ?? null,
     },
   });
+  if (rateChanged) {
+    await applyKgRateToCurrentWeek(db, kgRateRub);
+  }
   return c.json(null);
 });
 

@@ -15,6 +15,7 @@ async function main() {
       bank: "Demo Bank",
       payTo: "00000000000",
       deadlineText: "до 16:00 воскресенья",
+      kgRateRub: 20,
       windowStart: 17,
       windowEnd: 21,
     },

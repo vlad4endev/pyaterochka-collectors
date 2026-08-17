@@ -3,6 +3,8 @@ import { assertDate, assertDayOfWeek, currentMoscowWeek, previousMoscowWeek } fr
 import { HttpError } from "./errors";
 import { normalizePhone } from "./phone";
 
+export const DEFAULT_KG_RATE_RUB = 20;
+
 export async function getOpenPeriod(db: PrismaClient, nowMs = Date.now()): Promise<Period | null> {
   await ensureCurrentWeekPeriod(db, nowMs);
   return await db.period.findFirst({ where: { status: "open" } });
@@ -82,6 +84,7 @@ type SettingsPatch = {
   bank?: string;
   payTo?: string;
   deadlineText?: string;
+  kgRateRub?: number;
   windowStart?: number;
   windowEnd?: number;
   botToken?: string | null;
@@ -110,6 +113,7 @@ export async function patchDefaultSettings(
         bank: data.bank ?? "—",
         payTo: data.payTo ?? "—",
         deadlineText: data.deadlineText ?? "—",
+        kgRateRub: data.kgRateRub ?? DEFAULT_KG_RATE_RUB,
         windowStart: data.windowStart ?? 17,
         windowEnd: data.windowEnd ?? 21,
         botToken: data.botToken,
@@ -348,7 +352,13 @@ export async function patchPeriod(
 
 export { assertDate, assertDayOfWeek, currentMoscowWeek, previousMoscowWeek };
 
-export const KG_RATE_RUB = 20;
+export async function defaultKgRate(db: PrismaClient): Promise<number> {
+  const settings = await getSettings(db);
+  if (settings && settings.kgRateRub > 0) {
+    return settings.kgRateRub;
+  }
+  return DEFAULT_KG_RATE_RUB;
+}
 
 export function entryPayeeId(entry: {
   collectorId: string;
@@ -399,13 +409,14 @@ export async function ensureCurrentWeekPeriod(
   }
 
   const last = await db.period.findFirst({ orderBy: { startDate: "desc" } });
+  const rate = await defaultKgRate(db);
   try {
     return await db.period.create({
       data: {
         startDate,
         endDate,
         storeTotalRub: last?.storeTotalRub ?? DEFAULT_WEEK_STORE_TOTAL,
-        rate: KG_RATE_RUB,
+        rate,
         status: "open",
       },
     });

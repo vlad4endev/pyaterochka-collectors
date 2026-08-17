@@ -5,6 +5,8 @@ import { errorMessage } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
 
+const EXAMPLE_KG = 10;
+
 export function SettingsPage() {
   const { token, refreshData } = useSession();
   const { data: settings } = useApiQuery(
@@ -13,6 +15,7 @@ export function SettingsPage() {
     [token],
   );
 
+  const [kgRate, setKgRate] = useState("20");
   const [bank, setBank] = useState("");
   const [payTo, setPayTo] = useState("");
   const [deadlineText, setDeadlineText] = useState("");
@@ -26,6 +29,7 @@ export function SettingsPage() {
     if (!settings) {
       return;
     }
+    setKgRate(String(settings.kgRateRub ?? 20));
     setBank(settings.bank);
     setPayTo(settings.payTo);
     setDeadlineText(settings.deadlineText);
@@ -33,13 +37,22 @@ export function SettingsPage() {
     setWindowEnd(String(settings.windowEnd));
   }, [settings]);
 
+  const rateNum = Number(kgRate.replace(",", "."));
+  const rateOk = Number.isFinite(rateNum) && rateNum > 0;
+  const exampleRub = rateOk ? Math.round(EXAMPLE_KG * rateNum) : null;
+
   async function onSave(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setToast(null);
+    if (!rateOk) {
+      setError("Укажите цену за кг больше нуля");
+      return;
+    }
     setBusy(true);
     try {
       await api.settings.update(token ?? "", {
+        kgRateRub: rateNum,
         bank,
         payTo,
         deadlineText,
@@ -63,7 +76,7 @@ export function SettingsPage() {
     <form onSubmit={(event) => void onSave(event)}>
       <PageHeader
         title="Настройки"
-        sub="Реквизиты для выплат и окно приёма продуктов"
+        sub="Цена за кг, реквизиты для выплат и окно приёма"
         actions={
           <button className="btn-primary" type="submit" disabled={busy}>
             {busy ? "Сохраняем…" : "Сохранить"}
@@ -71,12 +84,39 @@ export function SettingsPage() {
         }
       />
 
+      <div className="card rate-card">
+        <h2>Цена за килограмм</h2>
+        <p className="h2-sub">
+          Когда магазин поднимает цену — поменяйте здесь. Новая ставка сразу действует на текущую
+          неделю и все следующие. Уже оплаченные недели остаются со старой ценой.
+        </p>
+        <label htmlFor="sRate">Сколько рублей за 1 кг</label>
+        <div className="rate-input-row">
+          <input
+            id="sRate"
+            className="rate-input"
+            type="number"
+            min="1"
+            step="1"
+            inputMode="numeric"
+            value={kgRate}
+            onChange={(event) => setKgRate(event.target.value)}
+            required
+          />
+          <span className="rate-input-suffix">₽/кг</span>
+        </div>
+        {exampleRub !== null ? (
+          <p className="rate-example">
+            Например, {EXAMPLE_KG} кг × {rateNum} ₽ = {exampleRub} ₽
+          </p>
+        ) : (
+          <p className="rate-example">Укажите цену больше нуля</p>
+        )}
+      </div>
+
       <div className="card">
         <h2>Выплаты</h2>
-        <p className="h2-sub">
-          Эти данные уходят участникам в счёте. Ставка ₽/кг задаётся у открытой недели в шапке — иначе
-          старые кг пересчитаются задним числом.
-        </p>
+        <p className="h2-sub">Эти данные уходят участникам в счёте.</p>
         <div className="grid2">
           <div className="field">
             <label htmlFor="sBank">Банк</label>

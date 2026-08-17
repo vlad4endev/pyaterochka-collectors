@@ -1,6 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { getDashboard } from "./dashboard";
-import { KG_RATE_RUB, entryPayeeId, requireCollector, requirePeriod } from "./domain";
+import {
+  assertRate,
+  currentMoscowWeek,
+  entryPayeeId,
+  requireCollector,
+  requirePeriod,
+} from "./domain";
 import { HttpError } from "./errors";
 
 export type SettlementRow = {
@@ -87,7 +93,7 @@ export async function getPeriodSettlement(
       collectorId,
       collectorName: collector?.name ?? "Unknown",
       kg,
-      amountRub: frozen ? (payment?.amountRub ?? kg * KG_RATE_RUB) : kg * KG_RATE_RUB,
+      amountRub: frozen ? (payment?.amountRub ?? kg * period.rate) : kg * period.rate,
       paidAt: payment?.paidAt?.getTime() ?? null,
       paymentId: payment?.id ?? null,
       hasTelegram: Boolean(collector?.telegramUserId),
@@ -104,7 +110,7 @@ export async function getPeriodSettlement(
     periodId: period.id,
     startDate: period.startDate,
     endDate: period.endDate,
-    rate: KG_RATE_RUB,
+    rate: period.rate,
     settled: Boolean(period.settledAt),
     storeTotalRub: period.storeTotalRub,
     rows,
@@ -126,11 +132,51 @@ export async function syncUnpaidCollectorPayment(
   if (!existing || existing.paidAt) {
     return;
   }
+  const period = await requirePeriod(db, periodId);
   const kg = await sumConfirmedKgForPayee(db, periodId, collectorId);
   await db.payment.update({
     where: { id: existing.id },
-    data: { kg, amountRub: kg * KG_RATE_RUB },
+    data: { kg, amountRub: kg * period.rate },
   });
+}
+
+export async function applyKgRateToCurrentWeek(
+  db: PrismaClient,
+  rate: number,
+  nowMs = Date.now(),
+): Promise<void> {
+  const nextRate = assertRate(rate);
+  const current = currentMoscowWeek(nowMs);
+  const period = await db.period.findFirst({
+    where: {
+      startDate: { lte: current.endDate },
+      endDate: { gte: current.startDate },
+    },
+  });
+  if (!period || period.settledAt) {
+    return;
+  }
+  if (period.rate !== nextRate) {
+    await db.period.update({
+      where: { id: period.id },
+      data: { rate: nextRate },
+    });
+  }
+  const unpaid = await db.payment.findMany({
+    where: { periodId: period.id, paidAt: null },
+    take: 200,
+  });
+  if (unpaid.length === 0) {
+    return;
+  }
+  await db.$transaction(
+    unpaid.map((payment) =>
+      db.payment.update({
+        where: { id: payment.id },
+        data: { amountRub: payment.kg * nextRate },
+      }),
+    ),
+  );
 }
 
 export async function sumConfirmedKgForPayee(
@@ -248,10 +294,10 @@ export async function createPeriodSettlement(
   if (!Number.isFinite(store.totalRub) || store.totalRub <= 0) {
     throw new HttpError("storeTotalRub must be greater than 0");
   }
-  const expectedRub = store.kg * KG_RATE_RUB;
+  const expectedRub = store.kg * period.rate;
   if (!sameRub(expectedRub, store.totalRub)) {
     throw new HttpError(
-      `Store invoice mismatch: ${kgLabel(store.kg)} kg × ${KG_RATE_RUB} = ${Math.round(expectedRub)}, got ${Math.round(store.totalRub)}`,
+      `Store invoice mismatch: ${kgLabel(store.kg)} kg × ${period.rate} = ${Math.round(expectedRub)}, got ${Math.round(store.totalRub)}`,
       409,
     );
   }
@@ -264,7 +310,7 @@ export async function createPeriodSettlement(
   }
   await db.period.update({
     where: { id: periodId },
-    data: { storeTotalRub: store.totalRub, rate: KG_RATE_RUB },
+    data: { storeTotalRub: store.totalRub, rate: period.rate },
   });
   const unpaid = settlement.rows.filter((row) => !row.paidAt);
   if (unpaid.length === 0) {
@@ -305,7 +351,7 @@ export async function markCollectorPaid(
     throw new HttpError("Collector already paid");
   }
   const kg = await sumConfirmedKgForPayee(db, periodId, collectorId);
-  const amountRub = kg * KG_RATE_RUB;
+  const amountRub = kg * period.rate;
   if (kg <= 0) {
     throw new HttpError("Collector has no confirmed kg in this period");
   }

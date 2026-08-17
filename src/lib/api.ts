@@ -118,6 +118,7 @@ export type Settings = {
   bank: string;
   payTo: string;
   deadlineText: string;
+  kgRateRub: number;
   windowStart: number;
   windowEnd: number;
   groupChatId?: string;
@@ -391,6 +392,7 @@ export const api = {
         bank: string;
         payTo: string;
         deadlineText: string;
+        kgRateRub: number;
         windowStart: number;
         windowEnd: number;
         groupChatId?: string;
