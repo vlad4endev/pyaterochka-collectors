@@ -1,5 +1,5 @@
 import { Bot, Keyboard, MaxError, type Context } from "@maxhub/max-bot-api";
-import type { Button } from "@maxhub/max-bot-api/types";
+import type { Attachment, Button } from "@maxhub/max-bot-api/types";
 import { db } from "./db";
 import { patchDefaultSettings } from "./lib/domain";
 import { HttpError } from "./lib/errors";
@@ -12,7 +12,9 @@ import {
   maxMiniAppLink,
   patchMaxRuntime,
   refreshMaxRuntime,
+  resolveMaxApiBaseUrl,
 } from "./lib/max";
+import { ensureMaxTrustedCa } from "./lib/maxTls";
 import { phoneFromVcf, upsertMaxBotUser } from "./lib/maxUsers";
 
 type OpenAppButton = {
@@ -108,12 +110,30 @@ async function bindCurrentChat(ctx: Context): Promise<void> {
   await ctx.reply(`Чат «${title ?? chat.chat_id}» привязан к админке сборщиков.`);
 }
 
+function invoiceImageUrl(attachments: Attachment[] | null | undefined): string | undefined {
+  if (!attachments) {
+    return undefined;
+  }
+  for (const item of attachments) {
+    if (item.type === "image") {
+      return item.payload.url;
+    }
+    if (item.type === "file") {
+      const name = item.filename ?? item.payload.url;
+      if (/\.(jpe?g|png|webp|heic|heif)(\?|$)/i.test(name)) {
+        return item.payload.url;
+      }
+    }
+  }
+  return undefined;
+}
+
 function isPrivateDialog(ctx: Context): boolean {
   return ctx.message?.recipient.chat_type === "dialog";
 }
 
-export function createMaxBot(token: string): Bot {
-  const bot = new Bot(token);
+export function createMaxBot(token: string, apiBaseUrl: string): Bot {
+  const bot = new Bot(token, { clientOptions: { baseUrl: apiBaseUrl } });
 
   bot.on("bot_started", async (ctx) => {
     await sendGreeting(ctx);
@@ -160,10 +180,10 @@ export function createMaxBot(token: string): Bot {
       return;
     }
     await rememberUser(from);
-    const image = message.body.attachments?.find((item) => item.type === "image");
-    if (image && image.type === "image") {
+    const imageUrl = invoiceImageUrl(message.body.attachments);
+    if (imageUrl) {
       try {
-        const photoRef = await saveInvoicePhotoFromUrl(image.payload.url);
+        const photoRef = await saveInvoicePhotoFromUrl(imageUrl);
         const result = await createInvoiceFromPhoto(db, String(from.user_id), photoRef, Date.now(), "max");
         const url = getMiniAppUrl();
         const text = `Накладная за ${result.date.slice(8, 10)}.${result.date.slice(5, 7)} ушла на проверку. Открой приложение, чтобы видеть статус.`;
@@ -187,6 +207,20 @@ export function createMaxBot(token: string): Bot {
         }
         if (messageText === "Date is outside the open period") {
           await ctx.reply("Сегодняшняя дата не входит в текущий период.");
+          return;
+        }
+        if (messageText === "This day was already submitted by another collector") {
+          const name =
+            err instanceof HttpError &&
+            typeof err.details?.collectorName === "string" &&
+            err.details.collectorName.trim().length > 0
+              ? err.details.collectorName.trim()
+              : undefined;
+          await ctx.reply(
+            name
+              ? `За этот день уже внёс ${name}. Вторая сдача от другого участника не принимается.`
+              : "За этот день уже внёс другой участник.",
+          );
           return;
         }
         console.error(err);
@@ -227,6 +261,7 @@ async function stopCurrentBot(): Promise<void> {
 }
 
 async function restartMaxBotInner(): Promise<void> {
+  ensureMaxTrustedCa();
   await stopCurrentBot();
   const next = await refreshMaxRuntime();
   const token = next.botToken;
@@ -235,7 +270,7 @@ async function restartMaxBotInner(): Promise<void> {
     console.warn("MAX_BOT_TOKEN is not set — MAX bot is skipped");
     return;
   }
-  const bot = createMaxBot(token);
+  const bot = createMaxBot(token, await resolveMaxApiBaseUrl());
   currentBot = bot;
   try {
     try {

@@ -7,10 +7,13 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { app as api } from "./app";
 import { startBot, stopBot } from "./bot";
+import { ensureMaxTrustedCa } from "./lib/maxTls";
 import { startMaxBot, stopMaxBot } from "./maxBot";
 import { db } from "./db";
 import { ensureCurrentWeekPeriod } from "./lib/domain";
 import { startDailyReportReminders, stopDailyReportReminders } from "./lib/scheduler";
+
+ensureMaxTrustedCa();
 
 const port = Number(process.env.PORT ?? 3001);
 const hostname = process.env.HOST ?? "0.0.0.0";

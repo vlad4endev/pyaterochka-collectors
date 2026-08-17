@@ -59,7 +59,7 @@ function UserRow({
 
 export function MaxPage() {
   const { token } = useSession();
-  const { data, reload } = useApiQuery(
+  const { data, error: loadError, reload } = useApiQuery(
     Boolean(token),
     () => api.max.get(token ?? ""),
     [token],
@@ -235,6 +235,9 @@ export function MaxPage() {
   }
 
   if (!current) {
+    if (loadError) {
+      return <div className="err">{errorMessage(loadError)}</div>;
+    }
     return <div className="loading">Загрузка…</div>;
   }
 
@@ -334,6 +337,8 @@ export function MaxPage() {
             </button>
           ) : null}
         </div>
+        {error ? <div className="err">{error}</div> : null}
+        {toast ? <div className="toast">{toast}</div> : null}
       </form>
 
       <div className="note-card">
@@ -440,9 +445,6 @@ export function MaxPage() {
           </>
         )}
       </div>
-
-      {error ? <div className="err">{error}</div> : null}
-      {toast ? <div className="toast">{toast}</div> : null}
     </div>
   );
 }

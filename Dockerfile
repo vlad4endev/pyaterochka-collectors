@@ -15,6 +15,7 @@ FROM node:22-alpine
 WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 ENV NODE_ENV=production
+ENV NODE_EXTRA_CA_CERTS=/app/server/certs/russian_trusted_root_ca.pem
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY prisma ./prisma

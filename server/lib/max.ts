@@ -2,12 +2,42 @@ import { createHmac } from "node:crypto";
 import { db } from "../db";
 import { getSettings } from "./domain";
 import { HttpError, timingSafeEqualString } from "./errors";
+import { ensureMaxTrustedCa } from "./maxTls";
 import { assertGroupChatId, assertMiniAppUrl, getMiniAppUrl, refreshTelegramRuntime } from "./telegram";
 
 export { assertGroupChatId, assertMiniAppUrl, getMiniAppUrl };
 
 const INIT_DATA_MAX_AGE_SEC = 24 * 60 * 60;
-const MAX_API = "https://platform-api2.max.ru";
+const MAX_API_V2 = "https://platform-api2.max.ru";
+const MAX_API_LEGACY = "https://platform-api.max.ru";
+
+let apiBaseUrl: string | null = null;
+let apiBaseUrlPromise: Promise<string> | null = null;
+
+export async function resolveMaxApiBaseUrl(): Promise<string> {
+  if (apiBaseUrl) {
+    return apiBaseUrl;
+  }
+  if (!apiBaseUrlPromise) {
+    apiBaseUrlPromise = probeMaxApiBaseUrl();
+  }
+  return await apiBaseUrlPromise;
+}
+
+async function probeMaxApiBaseUrl(): Promise<string> {
+  ensureMaxTrustedCa();
+  try {
+    const response = await fetch(`${MAX_API_V2}/me`);
+    await response.arrayBuffer().catch(() => undefined);
+    apiBaseUrl = MAX_API_V2;
+    return apiBaseUrl;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.warn(`MAX API: ${MAX_API_V2} is unreachable (${detail}), using ${MAX_API_LEGACY}`);
+    apiBaseUrl = MAX_API_LEGACY;
+    return apiBaseUrl;
+  }
+}
 
 export type MaxUser = {
   id: number;
@@ -84,7 +114,8 @@ async function maxFetch(
   path: string,
   init?: { method?: string; headers?: Record<string, string>; body?: string },
 ): Promise<Response> {
-  return await fetch(`${MAX_API}${path}`, {
+  const baseUrl = await resolveMaxApiBaseUrl();
+  return await fetch(`${baseUrl}${path}`, {
     method: init?.method ?? "GET",
     headers: {
       Authorization: token,
@@ -110,21 +141,24 @@ export async function fetchMaxBotIdentity(
   let response: Response;
   try {
     response = await maxFetch(token, "/me");
-  } catch {
+  } catch (err) {
+    console.error("MAX API /me failed", err);
     throw new HttpError("Failed to reach MAX API", 503);
   }
   const payload: unknown = await response.json().catch(() => null);
   if (response.status === 401 || response.status === 403) {
     throw new HttpError("Invalid MAX bot token");
   }
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    !("user_id" in payload) ||
-    typeof payload.user_id !== "number" ||
-    !("is_bot" in payload) ||
-    payload.is_bot !== true
-  ) {
+  if (typeof payload !== "object" || payload === null) {
+    throw new HttpError("Invalid MAX bot token");
+  }
+  if ("is_bot" in payload && payload.is_bot === false) {
+    throw new HttpError("Invalid MAX bot token");
+  }
+  const id = asMaxUserId(
+    "user_id" in payload ? payload.user_id : "id" in payload ? payload.id : undefined,
+  );
+  if (id == null) {
     throw new HttpError("Invalid MAX bot token");
   }
   const username =
@@ -134,8 +168,10 @@ export async function fetchMaxBotIdentity(
   const name =
     "name" in payload && typeof payload.name === "string" && payload.name.trim()
       ? payload.name.trim()
-      : username ?? "бот";
-  return { username, name, id: payload.user_id };
+      : "first_name" in payload && typeof payload.first_name === "string" && payload.first_name.trim()
+        ? payload.first_name.trim()
+        : username ?? "бот";
+  return { username, name, id };
 }
 
 export async function fetchMaxChatTitle(token: string, chatId: string): Promise<string | null> {

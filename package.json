@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
-    "dev:api": "tsx watch server/index.ts",
+    "dev:api": "NODE_EXTRA_CA_CERTS=server/certs/russian_trusted_root_ca.pem tsx watch server/index.ts",
     "dev:web": "vite",
     "db:up": "docker compose up -d",
     "db:migrate": "prisma migrate dev",
@@ -13,7 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "build": "prisma generate && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.app.json && vite build",
-    "start": "tsx server/index.ts",
+    "start": "NODE_EXTRA_CA_CERTS=server/certs/russian_trusted_root_ca.pem tsx server/index.ts",
     "preview": "vite preview",
     "prod:up": "docker compose -f docker-compose.prod.yml up --build -d",
     "prod:down": "docker compose -f docker-compose.prod.yml down",
