@@ -1,4 +1,5 @@
 import type { MaxBotUser, PrismaClient } from "@prisma/client";
+import { normalizePhone, phoneFromVcf, phoneMatchValues } from "./phone";
 
 export type MaxBotUserDto = {
   maxUserId: string;
@@ -10,22 +11,7 @@ export type MaxBotUserDto = {
   collectorName: string | null;
 };
 
-function normalizePhone(raw: string): string | null {
-  const trimmed = raw.replace(/[^\d+]/g, "");
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length < 10 || digits.length > 15) {
-    return null;
-  }
-  return trimmed.slice(0, 20);
-}
-
-export function phoneFromVcf(vcf: string | null | undefined): string | null {
-  if (!vcf) {
-    return null;
-  }
-  const match = vcf.match(/TEL[^:]*:([^\r\n]+)/i);
-  return match?.[1] ? normalizePhone(match[1]) : null;
-}
+export { phoneFromVcf };
 
 export async function upsertMaxBotUser(
   db: PrismaClient,
@@ -64,25 +50,34 @@ export async function listMaxBotUsers(db: PrismaClient): Promise<MaxBotUserDto[]
     take: 200,
     orderBy: { lastSeenAt: "desc" },
   });
-  const ids = rows.map((row) => row.maxUserId);
   const collectors =
-    ids.length === 0
+    rows.length === 0
       ? []
       : await db.collector.findMany({
-          where: { maxUserId: { in: ids } },
+          take: 200,
         });
   const byMaxId = new Map(
     collectors.flatMap((collector) =>
       collector.maxUserId ? [[collector.maxUserId, collector.name] as const] : [],
     ),
   );
-  return rows.map((row) => ({
-    maxUserId: row.maxUserId,
-    name: row.name,
-    username: row.username,
-    phone: row.phone,
-    startedAt: row.startedAt.getTime(),
-    lastSeenAt: row.lastSeenAt.getTime(),
-    collectorName: byMaxId.get(row.maxUserId) ?? null,
-  }));
+  return rows.map((row) => {
+    const byId = byMaxId.get(row.maxUserId);
+    const byPhone =
+      row.phone &&
+      collectors.find(
+        (collector) =>
+          collector.phone &&
+          phoneMatchValues(row.phone ?? "").includes(collector.phone),
+      )?.name;
+    return {
+      maxUserId: row.maxUserId,
+      name: row.name,
+      username: row.username,
+      phone: row.phone,
+      startedAt: row.startedAt.getTime(),
+      lastSeenAt: row.lastSeenAt.getTime(),
+      collectorName: byId ?? byPhone ?? null,
+    };
+  });
 }

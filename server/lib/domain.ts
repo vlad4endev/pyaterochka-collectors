@@ -1,6 +1,7 @@
 import type { Collector, Period, PrismaClient, Settings } from "@prisma/client";
 import { assertDate, assertDayOfWeek, currentMoscowWeek, previousMoscowWeek } from "./dates";
 import { HttpError } from "./errors";
+import { normalizePhone } from "./phone";
 
 export async function getOpenPeriod(db: PrismaClient, nowMs = Date.now()): Promise<Period | null> {
   await ensureCurrentWeekPeriod(db, nowMs);
@@ -157,6 +158,21 @@ export function normalizeOptionalMessengerId(
   }
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
+}
+
+export function normalizeOptionalPhone(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  const phone = normalizePhone(trimmed);
+  if (!phone) {
+    throw new HttpError("Invalid phone");
+  }
+  return phone;
 }
 
 export function parseKgInput(raw: unknown): number | undefined {

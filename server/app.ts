@@ -15,6 +15,7 @@ import {
   ensureCurrentWeekPeriod,
   patchDefaultSettings,
   normalizeName,
+  normalizeOptionalPhone,
   normalizeOptionalTelegram,
   requireCollector,
   requireCollectorUnpaid,
@@ -76,6 +77,7 @@ import {
   verifyMaxInitData,
 } from "./lib/max";
 import { listMaxBotUsers } from "./lib/maxUsers";
+import { syncCollectorIdentity } from "./lib/identity";
 import { assertTelegramProxyConfig } from "./lib/telegramProxy";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -164,6 +166,7 @@ authed.post("/collectors", async (c) => {
   const body = await c.req.json<{
     name?: string;
     dayOfWeek?: number | null;
+    phone?: string;
     telegramUserId?: string;
     maxUserId?: string;
     active?: boolean;
@@ -172,11 +175,13 @@ authed.post("/collectors", async (c) => {
     data: {
       name: normalizeName(body.name ?? ""),
       dayOfWeek: assertDayOfWeek(body.dayOfWeek ?? null),
+      phone: normalizeOptionalPhone(body.phone),
       telegramUserId: normalizeOptionalTelegram(body.telegramUserId),
       maxUserId: normalizeOptionalTelegram(body.maxUserId),
       active: body.active ?? true,
     },
   });
+  await syncCollectorIdentity(db, row.id);
   return c.json(row.id);
 });
 
@@ -186,6 +191,7 @@ authed.patch("/collectors/:id", async (c) => {
   const body = await c.req.json<{
     name?: string;
     dayOfWeek?: number | null;
+    phone?: string;
     telegramUserId?: string;
     maxUserId?: string;
     active?: boolean;
@@ -195,6 +201,7 @@ authed.patch("/collectors/:id", async (c) => {
     data: {
       ...(body.name !== undefined ? { name: normalizeName(body.name) } : {}),
       ...(body.dayOfWeek !== undefined ? { dayOfWeek: assertDayOfWeek(body.dayOfWeek) } : {}),
+      ...(body.phone !== undefined ? { phone: normalizeOptionalPhone(body.phone) ?? null } : {}),
       ...(body.telegramUserId !== undefined
         ? { telegramUserId: normalizeOptionalTelegram(body.telegramUserId) ?? null }
         : {}),
@@ -204,6 +211,7 @@ authed.patch("/collectors/:id", async (c) => {
       ...(body.active !== undefined ? { active: body.active } : {}),
     },
   });
+  await syncCollectorIdentity(db, id);
   return c.json(null);
 });
 

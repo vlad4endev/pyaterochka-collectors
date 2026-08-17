@@ -26,6 +26,7 @@ export type Collector = {
   _creationTime: number;
   name: string;
   dayOfWeek: number | null;
+  phone?: string;
   telegramUserId?: string;
   maxUserId?: string;
   active: boolean;
@@ -283,6 +284,7 @@ export const api = {
       body: {
         name: string;
         dayOfWeek: number | null;
+        phone?: string;
         telegramUserId?: string;
         maxUserId?: string;
         active?: boolean;
@@ -294,6 +296,7 @@ export const api = {
       body: {
         name?: string;
         dayOfWeek?: number | null;
+        phone?: string;
         telegramUserId?: string;
         maxUserId?: string;
         active?: boolean;

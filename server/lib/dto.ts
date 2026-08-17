@@ -7,6 +7,7 @@ export function collectorDto(row: Collector) {
     _creationTime: row.createdAt.getTime(),
     name: row.name,
     dayOfWeek: row.dayOfWeek,
+    phone: row.phone ?? undefined,
     telegramUserId: row.telegramUserId ?? undefined,
     maxUserId: row.maxUserId ?? undefined,
     active: row.active,

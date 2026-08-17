@@ -27,6 +27,9 @@ export type GreetingCollectorStatus = "active" | "inactive" | "unknown";
 
 export const MINI_APP_BUTTON = "ВНЕСТИ";
 
+export const ASK_PHONE_TEXT =
+  "Нажми «Поделиться номером» — так мы узнаем тебя в списке участников и свяжем Telegram с MAX.";
+
 export function buildGreetingText(args: {
   helloName: string;
   hasApp: boolean;

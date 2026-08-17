@@ -137,6 +137,7 @@ const ERROR_RU: Record<string, string> = {
   "Collector not found": "Участник не найден",
   "Settings not found": "Сначала сохраните настройки",
   "Name is required": "Укажите имя",
+  "Invalid phone": "Некорректный номер телефона",
   "Bank, payTo and deadlineText are required": "Заполните банк, карту и дедлайн",
   "windowStart must be before windowEnd": "Начало окна должно быть раньше конца",
   "Collector has no confirmed kg in this period": "У участника нет подтверждённых кг",

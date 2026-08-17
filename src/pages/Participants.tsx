@@ -20,6 +20,7 @@ export function ParticipantsPage() {
   const [dayOfWeek, setDayOfWeek] = useState("");
   const [telegramUserId, setTelegramUserId] = useState("");
   const [maxUserId, setMaxUserId] = useState("");
+  const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function patch(
@@ -27,6 +28,7 @@ export function ParticipantsPage() {
     fields: {
       name?: string;
       dayOfWeek?: number | null;
+      phone?: string;
       telegramUserId?: string;
       maxUserId?: string;
       active?: boolean;
@@ -46,6 +48,9 @@ export function ParticipantsPage() {
             : "MAX ID снят",
         );
       }
+      if (fields.phone !== undefined) {
+        setToast(fields.phone ? "Телефон сохранён" : "Телефон снят");
+      }
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -64,12 +69,14 @@ export function ParticipantsPage() {
         dayOfWeek: dayOfWeek === "" ? null : Number(dayOfWeek),
         telegramUserId: telegramUserId.trim() || undefined,
         maxUserId: maxUserId.trim() || undefined,
+        phone: phone.trim() || undefined,
       });
       refreshData();
       setName("");
       setDayOfWeek("");
       setTelegramUserId("");
       setMaxUserId("");
+      setPhone("");
       setShowAdd(false);
       setToast("Участник добавлен");
     } catch (err) {
@@ -83,7 +90,7 @@ export function ParticipantsPage() {
     <>
       <PageHeader
         title="Участники"
-        sub="MAX ID — число из MAX-бота после /start. По нему бот узнаёт сборщика. Telegram ID и имя тоже правятся в таблице."
+        sub="Телефон с бота связывает Telegram и MAX: кто поделился номером в одном мессенджере, в другом подтянется автоматически. ID тоже можно править вручную."
         actions={
           showAdd ? undefined : (
             <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}>
@@ -103,6 +110,7 @@ export function ParticipantsPage() {
               <thead>
                 <tr>
                   <th>Имя</th>
+                  <th className="id-col">Телефон</th>
                   <th>День</th>
                   <th className="id-col">Telegram ID</th>
                   <th className="id-col">MAX ID</th>
@@ -119,6 +127,20 @@ export function ParticipantsPage() {
                           const next = event.target.value.trim();
                           if (next && next !== collector.name) {
                             void patch(collector._id, { name: next });
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="id-col">
+                      <input
+                        key={`${collector._id}-phone-${collector.phone ?? ""}`}
+                        defaultValue={collector.phone ?? ""}
+                        placeholder="с бота"
+                        inputMode="tel"
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next !== (collector.phone ?? "")) {
+                            void patch(collector._id, { phone: next });
                           }
                         }}
                       />
@@ -214,6 +236,18 @@ export function ParticipantsPage() {
               </select>
             </div>
             <div className="field">
+              <label htmlFor="cPhone">Телефон</label>
+              <input
+                id="cPhone"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="+7…"
+                inputMode="tel"
+              />
+            </div>
+          </div>
+          <div className="grid2">
+            <div className="field">
               <label htmlFor="cTg">Telegram ID</label>
               <input
                 id="cTg"
@@ -223,16 +257,16 @@ export function ParticipantsPage() {
                 inputMode="numeric"
               />
             </div>
-          </div>
-          <div className="field">
-            <label htmlFor="cMax">MAX ID</label>
-            <input
-              id="cMax"
-              value={maxUserId}
-              onChange={(event) => setMaxUserId(event.target.value)}
-              placeholder="число после /start в MAX-боте"
-              inputMode="numeric"
-            />
+            <div className="field">
+              <label htmlFor="cMax">MAX ID</label>
+              <input
+                id="cMax"
+                value={maxUserId}
+                onChange={(event) => setMaxUserId(event.target.value)}
+                placeholder="после /start в MAX-боте"
+                inputMode="numeric"
+              />
+            </div>
           </div>
           <div className="msg-actions">
             <button className="btn-primary" disabled={busy || name.trim().length < 1}>

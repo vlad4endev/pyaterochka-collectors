@@ -4,7 +4,7 @@ import { db } from "./db";
 import { patchDefaultSettings } from "./lib/domain";
 import { HttpError } from "./lib/errors";
 import { saveInvoicePhotoFromUrl } from "./lib/invoices";
-import { buildGreetingText, MINI_APP_BUTTON } from "./lib/messages";
+import { ASK_PHONE_TEXT, buildGreetingText, MINI_APP_BUTTON } from "./lib/messages";
 import { createInvoiceFromPhoto, findCollectorByMax } from "./lib/miniapp";
 import {
   getMaxBotUsername,
@@ -13,8 +13,10 @@ import {
   patchMaxRuntime,
   refreshMaxRuntime,
   resolveMaxApiBaseUrl,
+  unsubscribeMaxWebhooks,
 } from "./lib/max";
 import { ensureMaxTrustedCa } from "./lib/maxTls";
+import { attachSharedPhone } from "./lib/identity";
 import { phoneFromVcf, upsertMaxBotUser } from "./lib/maxUsers";
 
 type OpenAppButton = {
@@ -39,12 +41,34 @@ function appKeyboard() {
 let currentBot: Bot | null = null;
 let restartChain: Promise<void> = Promise.resolve();
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function replyToUser(
+  ctx: Context,
+  text: string,
+  extra?: Parameters<Context["reply"]>[1],
+): Promise<void> {
+  if (ctx.chatId != null) {
+    await ctx.reply(text, extra);
+    return;
+  }
+  const userId = ctx.user?.user_id;
+  if (userId == null) {
+    throw new Error("MAX reply skipped: no chat_id and no user");
+  }
+  await ctx.api.sendMessageToUser(userId, text, extra);
+}
+
 function firstName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
 function contactKeyboard() {
-  return Keyboard.inlineKeyboard([[Keyboard.button.requestContact("Отправить номер")]]);
+  return Keyboard.inlineKeyboard([[Keyboard.button.requestContact("Поделиться номером")]]);
 }
 
 async function rememberUser(user: {
@@ -63,9 +87,19 @@ async function rememberUser(user: {
 async function sendGreeting(ctx: Context): Promise<void> {
   const from = ctx.user;
   if (!from) {
+    console.warn("MAX greeting skipped: no user on", ctx.updateType);
     return;
   }
   const saved = await rememberUser(from);
+  if (!saved.phone) {
+    const collector = await findCollectorByMax(db, String(from.user_id));
+    if (collector?.phone) {
+      await rememberUser(from, collector.phone);
+    } else {
+      await replyToUser(ctx, ASK_PHONE_TEXT, { attachments: [contactKeyboard()] });
+      return;
+    }
+  }
   const collector = await findCollectorByMax(db, String(from.user_id));
   const url = getMiniAppUrl();
   const text = buildGreetingText({
@@ -77,12 +111,7 @@ async function sendGreeting(ctx: Context): Promise<void> {
   });
 
   const keyboard = appKeyboard();
-  await ctx.reply(text, keyboard ? { attachments: [keyboard] } : undefined);
-  if (!saved.phone) {
-    await ctx.reply("Чтобы в админке был телефон, нажми «Отправить номер».", {
-      attachments: [contactKeyboard()],
-    });
-  }
+  await replyToUser(ctx, text, keyboard ? { attachments: [keyboard] } : undefined);
 }
 
 async function bindCurrentChat(ctx: Context): Promise<void> {
@@ -138,7 +167,7 @@ export function createMaxBot(token: string, apiBaseUrl: string): Bot {
   bot.on("bot_started", async (ctx) => {
     await sendGreeting(ctx);
   });
-  bot.command("start", async (ctx) => {
+  bot.command(/^start(?:@[\w]+)?$/i, async (ctx) => {
     await sendGreeting(ctx);
   });
   bot.command("bind", async (ctx) => {
@@ -171,12 +200,22 @@ export function createMaxBot(token: string, apiBaseUrl: string): Bot {
     const contact = message.body.attachments?.find((item) => item.type === "contact");
     if (contact && contact.type === "contact") {
       const phone = phoneFromVcf(contact.payload.vcf_info);
-      await rememberUser(from, phone);
-      await ctx.reply(
-        phone
-          ? "Номер сохранён. Организатор видит имя, телефон и MAX ID в админке."
-          : "Контакт получен, но номер из него не прочитался. Можно отправить ещё раз.",
-      );
+      const saved = await rememberUser(from, phone);
+      if (saved.phone) {
+        await attachSharedPhone(db, {
+          platform: "max",
+          userId: String(from.user_id),
+          phone: saved.phone,
+        });
+      }
+      if (!saved.phone) {
+        await ctx.reply(
+          "Контакт получен, но номер из него не прочитался. Нажми «Поделиться номером» ещё раз.",
+          { attachments: [contactKeyboard()] },
+        );
+        return;
+      }
+      await sendGreeting(ctx);
       return;
     }
     await rememberUser(from);
@@ -230,6 +269,9 @@ export function createMaxBot(token: string, apiBaseUrl: string): Bot {
     }
     const text = message.body.text?.trim() ?? "";
     if (!text || text.startsWith("/")) {
+      if (/^\/start(?:@[\w]+)?$/i.test(text)) {
+        await sendGreeting(ctx);
+      }
       return;
     }
     await sendGreeting(ctx);
@@ -273,11 +315,18 @@ async function restartMaxBotInner(): Promise<void> {
   const bot = createMaxBot(token, await resolveMaxApiBaseUrl());
   currentBot = bot;
   try {
-    try {
-      await bot.api.setMyCommands([]);
-    } catch (err) {
-      console.error("Failed to clear MAX bot commands", err);
-    }
+    await unsubscribeMaxWebhooks(token);
+  } catch (err) {
+    console.warn("MAX webhook unsubscribe failed", err);
+  }
+  try {
+    await bot.api.setMyCommands([
+      { name: "start", description: "Открыть бота сборщиков" },
+    ]);
+  } catch (err) {
+    console.error("Failed to set MAX bot commands", err);
+  }
+  try {
     const me = await bot.api.getMyInfo();
     const username = me.username?.replace(/^@/, "") || null;
     patchMaxRuntime({
@@ -291,23 +340,32 @@ async function restartMaxBotInner(): Promise<void> {
     throw err;
   }
 
-  void bot
-    .start({
-      allowedUpdates: [
-        "message_created",
-        "bot_started",
-        "bot_added",
-        "bot_removed",
-        "message_callback",
-      ],
-    })
-    .catch((err) => {
+  void keepPolling(bot);
+}
+
+async function keepPolling(bot: Bot): Promise<void> {
+  while (currentBot === bot) {
+    try {
+      await bot.start();
+    } catch (err) {
       console.error("MAX bot polling error", err);
-      if (currentBot === bot) {
-        currentBot = null;
-        patchMaxRuntime({ botRunning: false });
-      }
-    });
+    }
+    if (currentBot !== bot) {
+      return;
+    }
+    try {
+      bot.stop();
+    } catch {
+      // Polling may already have exited.
+    }
+    patchMaxRuntime({ botRunning: false });
+    console.warn("MAX bot polling stopped, retrying in 5s");
+    await sleep(5000);
+    if (currentBot !== bot) {
+      return;
+    }
+    patchMaxRuntime({ botRunning: true });
+  }
 }
 
 export function restartMaxBot(): Promise<void> {

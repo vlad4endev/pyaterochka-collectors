@@ -29,6 +29,7 @@ model Collector {
   createdAt      DateTime @default(now())
   name           String
   dayOfWeek      Int?
+  phone          String?
   telegramUserId String?
   maxUserId      String?
   active         Boolean  @default(true)
@@ -39,6 +40,7 @@ model Collector {
 
   @@index([telegramUserId])
   @@index([maxUserId])
+  @@index([phone])
   @@index([active])
 }
 
@@ -137,4 +139,19 @@ model MaxBotUser {
   lastSeenAt DateTime
 
   @@index([lastSeenAt])
+  @@index([phone])
+}
+
+model TelegramBotUser {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  telegramUserId String   @unique
+  name           String
+  username       String?
+  phone          String?
+  startedAt      DateTime
+  lastSeenAt     DateTime
+
+  @@index([lastSeenAt])
+  @@index([phone])
 }

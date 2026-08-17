@@ -192,6 +192,29 @@ export async function fetchMaxChatTitle(token: string, chatId: string): Promise<
   return null;
 }
 
+export async function unsubscribeMaxWebhooks(token: string): Promise<void> {
+  const response = await maxFetch(token, "/subscriptions");
+  const payload: unknown = await response.json().catch(() => null);
+  if (typeof payload !== "object" || payload === null || !("subscriptions" in payload)) {
+    return;
+  }
+  const list = payload.subscriptions;
+  if (!Array.isArray(list) || list.length === 0) {
+    return;
+  }
+  for (const item of list) {
+    if (typeof item !== "object" || item === null || !("url" in item) || typeof item.url !== "string") {
+      continue;
+    }
+    const url = item.url.trim();
+    if (!url) {
+      continue;
+    }
+    console.warn(`MAX API: removing webhook ${url} so long polling can receive /start`);
+    await maxFetch(token, `/subscriptions?url=${encodeURIComponent(url)}`, { method: "DELETE" });
+  }
+}
+
 export async function sendMaxMessage(chatId: string, text: string): Promise<void> {
   const token = await getMaxBotToken();
   const id = Number(chatId);

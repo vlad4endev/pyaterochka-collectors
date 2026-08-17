@@ -2,7 +2,9 @@ import { Bot, InlineKeyboard, Keyboard, type Context } from "grammy";
 import { db } from "./db";
 import { patchDefaultSettings } from "./lib/domain";
 import { HttpError } from "./lib/errors";
-import { buildGreetingText, MINI_APP_BUTTON } from "./lib/messages";
+import { persistTelegramPhoto } from "./lib/invoices";
+import { ASK_PHONE_TEXT, buildGreetingText, MINI_APP_BUTTON } from "./lib/messages";
+import { attachSharedPhone } from "./lib/identity";
 import {
   createInvoiceFromPhoto,
   findCollectorByTelegram,
@@ -13,6 +15,7 @@ import {
   patchTelegramRuntime,
   refreshTelegramRuntime,
 } from "./lib/telegram";
+import { upsertTelegramBotUser } from "./lib/telegramUsers";
 
 let currentBot: Bot | null = null;
 let restartChain: Promise<void> = Promise.resolve();
@@ -23,6 +26,26 @@ function inlineAppButton(url: string): InlineKeyboard {
 
 function replyAppKeyboard(url: string): Keyboard {
   return new Keyboard().webApp(MINI_APP_BUTTON, url).resized().persistent();
+}
+
+function phoneKeyboard(): Keyboard {
+  return new Keyboard().requestContact("Поделиться номером").resized().oneTime();
+}
+
+async function rememberTelegramUser(
+  from: { id: number; first_name: string; last_name?: string; username?: string },
+  phone?: string | null,
+) {
+  return await upsertTelegramBotUser(db, {
+    telegramUserId: String(from.id),
+    name: [from.first_name, from.last_name].filter(Boolean).join(" ") || from.first_name,
+    username: from.username,
+    phone,
+  });
+}
+
+async function askPhone(ctx: Context): Promise<void> {
+  await ctx.reply(ASK_PHONE_TEXT, { reply_markup: phoneKeyboard() });
 }
 
 async function sendGreeting(ctx: Context, withPersistentButton = false): Promise<void> {
@@ -52,6 +75,25 @@ async function sendGreeting(ctx: Context, withPersistentButton = false): Promise
   });
 }
 
+async function greetOrAskPhone(ctx: Context, withPersistentButton = false): Promise<void> {
+  const from = ctx.from;
+  if (!from || ctx.chat?.type !== "private") {
+    await sendGreeting(ctx, withPersistentButton);
+    return;
+  }
+  const saved = await rememberTelegramUser(from);
+  if (!saved.phone) {
+    const collector = await findCollectorByTelegram(db, String(from.id));
+    if (collector?.phone) {
+      await rememberTelegramUser(from, collector.phone);
+    } else {
+      await askPhone(ctx);
+      return;
+    }
+  }
+  await sendGreeting(ctx, withPersistentButton);
+}
+
 async function bindCurrentChat(ctx: Context): Promise<void> {
   const chat = ctx.chat;
   const from = ctx.from;
@@ -75,6 +117,62 @@ async function bindCurrentChat(ctx: Context): Promise<void> {
   await ctx.reply(`Чат «${title}» привязан к админке сборщиков.`);
 }
 
+async function acceptPrivateInvoice(ctx: Context, fileId: string): Promise<void> {
+  const from = ctx.from;
+  if (!from) {
+    return;
+  }
+  try {
+    const photoRef = await persistTelegramPhoto(fileId);
+    const result = await createInvoiceFromPhoto(db, String(from.id), photoRef, Date.now());
+    const url = getMiniAppUrl();
+    const text = `Накладная за ${result.date.slice(8, 10)}.${result.date.slice(5, 7)} ушла на проверку. Открой приложение, чтобы видеть статус.`;
+    if (url) {
+      await ctx.reply(text, {
+        reply_markup: inlineAppButton(url),
+      });
+    } else {
+      await ctx.reply(text);
+    }
+  } catch (err) {
+    const message = err instanceof HttpError ? err.message : "Не удалось принять фото";
+    if (message === "Not a collector") {
+      await ctx.reply(
+        `Тебя нет в списке участников. Покажи организатору свой Telegram ID: ${from.id}`,
+      );
+      return;
+    }
+    if (message === "Collector is inactive") {
+      await ctx.reply("Ты скрыт в списке участников — напиши организатору.");
+      return;
+    }
+    if (message === "Period not found" || message === "Period is closed") {
+      await ctx.reply("Сейчас нет открытого периода — подожди организатора.");
+      return;
+    }
+    if (message === "Date is outside the open period") {
+      await ctx.reply("Сегодняшняя дата не входит в текущий период.");
+      return;
+    }
+    if (message === "This day was already submitted by another collector") {
+      const name =
+        err instanceof HttpError &&
+        typeof err.details?.collectorName === "string" &&
+        err.details.collectorName.trim().length > 0
+          ? err.details.collectorName.trim()
+          : undefined;
+      await ctx.reply(
+        name
+          ? `За этот день уже внёс ${name}. Вторая сдача от другого участника не принимается.`
+          : "За этот день уже внёс другой участник.",
+      );
+      return;
+    }
+    console.error(err);
+    await ctx.reply("Не удалось принять фото. Попробуй ещё раз или открой приложение.");
+  }
+}
+
 export function createBot(token: string): Bot {
   const proxyAgent = getTelegramProxyAgent();
   const bot = new Bot(token, {
@@ -89,7 +187,7 @@ export function createBot(token: string): Bot {
   });
 
   bot.command("start", async (ctx) => {
-    await sendGreeting(ctx, true);
+    await greetOrAskPhone(ctx, true);
   });
   bot.command("bind", async (ctx) => {
     await bindCurrentChat(ctx);
@@ -111,6 +209,36 @@ export function createBot(token: string): Bot {
     }
   });
 
+  bot.on("message:contact", async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      return;
+    }
+    const from = ctx.from;
+    const contact = ctx.message.contact;
+    if (!from || !contact) {
+      return;
+    }
+    if (contact.user_id != null && contact.user_id !== from.id) {
+      await ctx.reply("Нужно отправить свой номер кнопкой «Поделиться номером».", {
+        reply_markup: phoneKeyboard(),
+      });
+      return;
+    }
+    const saved = await rememberTelegramUser(from, contact.phone_number);
+    if (!saved.phone) {
+      await ctx.reply("Не получилось прочитать номер. Нажми «Поделиться номером» ещё раз.", {
+        reply_markup: phoneKeyboard(),
+      });
+      return;
+    }
+    await attachSharedPhone(db, {
+      platform: "telegram",
+      userId: String(from.id),
+      phone: saved.phone,
+    });
+    await sendGreeting(ctx, true);
+  });
+
   bot.on("message:photo", async (ctx) => {
     if (ctx.chat.type !== "private") {
       return;
@@ -121,45 +249,26 @@ export function createBot(token: string): Bot {
     if (!photo || !from) {
       return;
     }
-    try {
-      const result = await createInvoiceFromPhoto(
-        db,
-        String(from.id),
-        photo.file_id,
-        Date.now(),
-      );
-      const url = getMiniAppUrl();
-      const text = `Накладная за ${result.date.slice(8, 10)}.${result.date.slice(5, 7)} ушла на проверку. Открой приложение, чтобы видеть статус.`;
-      if (url) {
-        await ctx.reply(text, {
-          reply_markup: inlineAppButton(url),
-        });
-      } else {
-        await ctx.reply(text);
-      }
-    } catch (err) {
-      const message = err instanceof HttpError ? err.message : "Не удалось принять фото";
-      if (message === "Not a collector") {
-        await ctx.reply(
-          `Тебя нет в списке участников. Покажи организатору свой Telegram ID: ${from.id}`,
-        );
-        return;
-      }
-      if (message === "Collector is inactive") {
-        await ctx.reply("Ты скрыт в списке участников — напиши организатору.");
-        return;
-      }
-      if (message === "Period not found" || message === "Period is closed") {
-        await ctx.reply("Сейчас нет открытого периода — подожди организатора.");
-        return;
-      }
-      if (message === "Date is outside the open period") {
-        await ctx.reply("Сегодняшняя дата не входит в текущий период.");
-        return;
-      }
-      console.error(err);
-      await ctx.reply("Не удалось принять фото. Попробуй ещё раз или открой приложение.");
+    await acceptPrivateInvoice(ctx, photo.file_id);
+  });
+
+  bot.on("message:document", async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      return;
     }
+    const document = ctx.message.document;
+    const from = ctx.from;
+    if (!document || !from) {
+      return;
+    }
+    const mime = document.mime_type ?? "";
+    const name = document.file_name ?? "";
+    const isImage = mime.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif)$/i.test(name);
+    if (!isImage) {
+      await ctx.reply("Нужно фото ведомости — снимок с камеры или JPG/PNG из галереи.");
+      return;
+    }
+    await acceptPrivateInvoice(ctx, document.file_id);
   });
 
   bot.on("message:text", async (ctx) => {
@@ -170,7 +279,7 @@ export function createBot(token: string): Bot {
     if (text.startsWith("/")) {
       return;
     }
-    await sendGreeting(ctx);
+    await greetOrAskPhone(ctx);
   });
 
   bot.catch((err) => {
