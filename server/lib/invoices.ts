@@ -34,8 +34,11 @@ function sniffImage(bytes: Buffer): { ext: string; contentType: string } | null 
   ) {
     return { ext: "webp", contentType: "image/webp" };
   }
-  const brand = bytes.length >= 12 ? bytes.toString("ascii", 4, 12) : "";
-  if (brand.startsWith("ftyp")) {
+  const brand = bytes.length >= 12 ? bytes.toString("ascii", 4, 12).toLowerCase() : "";
+  if (
+    brand.startsWith("ftyp") &&
+    /^(heic|heif|heix|mif1|msf1)$/.test(brand.slice(4))
+  ) {
     return { ext: "heic", contentType: "image/heic" };
   }
   return null;
@@ -78,6 +81,31 @@ export async function saveInvoicePhotoBytes(bytes: Buffer): Promise<string> {
 
 export async function saveInvoicePhoto(file: { arrayBuffer: () => Promise<ArrayBuffer> }): Promise<string> {
   return await saveInvoicePhotoBytes(Buffer.from(await file.arrayBuffer()));
+}
+
+export async function saveInvoicePhotoIfPresent(
+  file: { arrayBuffer: () => Promise<ArrayBuffer> } | undefined,
+): Promise<string | undefined> {
+  if (!file) {
+    return undefined;
+  }
+  const bytes = Buffer.from(await file.arrayBuffer());
+  if (bytes.length === 0) {
+    return undefined;
+  }
+  return await saveInvoicePhotoBytes(bytes);
+}
+
+export async function persistTelegramPhoto(fileId: string): Promise<string> {
+  const photo = await fetchTelegramPhoto(fileId);
+  return await saveInvoicePhotoBytes(photo.bytes);
+}
+
+export async function persistInvoicePhotoRef(ref: string): Promise<string> {
+  if (isUploadPhotoRef(ref)) {
+    return ref;
+  }
+  return await persistTelegramPhoto(ref);
 }
 
 export async function saveInvoicePhotoFromUrl(url: string): Promise<string> {

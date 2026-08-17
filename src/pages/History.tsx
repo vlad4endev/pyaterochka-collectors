@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { api } from "../lib/api";
-import { dayName, errorMessage, fmtShort } from "../lib/format";
+import { dayName, errorMessage, fmtShort, parseKg } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
 
@@ -43,6 +43,11 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
       setError("Выберите участника");
       return;
     }
+    const kgValue = parseKg(kg);
+    if (kgValue === undefined) {
+      setError("Укажите кг больше нуля");
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
@@ -50,7 +55,7 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
         periodId,
         collectorId,
         date,
-        kg: Number(kg),
+        kg: kgValue,
         note: note.trim() || undefined,
       };
       if (creditedBy && creditedBy !== collectorId) {
@@ -59,7 +64,7 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
           collectorId: creditedBy,
           creditedByCollectorId: collectorId,
           date,
-          kg: Number(kg),
+          kg: kgValue,
           note: note.trim() || undefined,
         });
       } else {

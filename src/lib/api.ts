@@ -222,6 +222,7 @@ export type MiniHome = {
     date: string;
     weekday: number;
     scheduled: MiniPerson[];
+    takenBy: MiniPerson | null;
   }>;
   me: {
     kg: number;

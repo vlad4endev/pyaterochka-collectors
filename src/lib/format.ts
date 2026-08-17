@@ -1,3 +1,5 @@
+import { ApiError } from "./http";
+
 export const DAY_NAMES = [
   "Воскресенье",
   "Понедельник",
@@ -88,6 +90,21 @@ export function mondayPad(weekday: number): number {
   return weekday === 0 ? 6 : weekday - 1;
 }
 
+export function parseKg(raw: string | number | undefined | null): number | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+  }
+  const normalized = raw.trim().replace(",", ".");
+  if (!normalized) {
+    return undefined;
+  }
+  const value = Number(normalized);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 export function formatKg(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
@@ -133,7 +150,8 @@ const ERROR_RU: Record<string, string> = {
   "MAX_BOT_TOKEN is not configured": "Токен MAX-бота не задан — откройте раздел MAX в админке",
   "Invalid MAX bot token": "Неверный токен MAX-бота — проверьте в расширенных настройках чат-бота",
   "MAX bot token is required": "Вставьте токен MAX-бота, чтобы подключить его",
-  "Failed to reach MAX API": "Нет доступа к API MAX. Проверьте токен и сеть",
+  "Failed to reach MAX API":
+    "Нет доступа к API MAX. Токен мог не сохраниться — проверьте сеть и сохраните ещё раз",
   "MINIAPP_URL must be an https URL": "URL мини-приложения должен начинаться с https://",
   "Invalid group chat ID": "Укажите Chat ID группы, например -1001234567890",
   "Chat not found": "Бот не видит этот чат — добавьте его в группу и проверьте ID",
@@ -165,6 +183,8 @@ const ERROR_RU: Record<string, string> = {
   "Date is in the future": "Нельзя внести за день, который ещё не наступил",
   "Collector is not scheduled on this date": "В этот день в расписании другой участник",
   "Entry already has kilograms": "За этот день уже есть килограммы",
+  "This day was already submitted by another collector":
+    "За этот день уже внёс другой участник",
   "creditedByCollectorId must be a different collector": "Засчитать можно только за другого участника",
   "kg must be greater than 0": "Укажите килограммы больше нуля",
   "storeTotalRub must be greater than 0": "Укажите сумму из счёта магазина",
@@ -181,6 +201,20 @@ export function errorMessage(err: unknown): string {
   );
   if (storeMismatch) {
     return `В счёте магазина кг и сумма не сходятся: ${storeMismatch[1]} кг × ${storeMismatch[2]} = ${storeMismatch[3]} ₽, указано ${storeMismatch[4]} ₽`;
+  }
+  if (raw === "This day was already submitted by another collector") {
+    const details = err instanceof ApiError ? err.details : undefined;
+    const name =
+      typeof details === "object" &&
+      details !== null &&
+      "collectorName" in details &&
+      typeof details.collectorName === "string" &&
+      details.collectorName.trim().length > 0
+        ? details.collectorName.trim()
+        : undefined;
+    return name
+      ? `За этот день уже внёс ${name}`
+      : "За этот день уже внёс другой участник";
   }
   return ERROR_RU[raw] ?? raw;
 }

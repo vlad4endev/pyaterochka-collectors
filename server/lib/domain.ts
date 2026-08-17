@@ -159,11 +159,26 @@ export function normalizeOptionalMessengerId(
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
+export function parseKgInput(raw: unknown): number | undefined {
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+  }
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const normalized = raw.trim().replace(",", ".");
+  if (!normalized) {
+    return undefined;
+  }
+  const value = Number(normalized);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 export function assertPositiveKg(kg: number): number {
   if (!Number.isFinite(kg) || kg <= 0) {
     throw new HttpError("kg must be greater than 0");
   }
-  return kg;
+  return Number((Math.round(kg * 10) / 10).toFixed(1));
 }
 
 export function assertRate(rate: number): number {

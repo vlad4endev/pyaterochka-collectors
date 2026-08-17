@@ -9,6 +9,7 @@ import {
   formatRub,
   fmtShort,
   initials,
+  parseKg,
   periodLabel,
 } from "../lib/format";
 import { ApiError } from "../lib/http";
@@ -240,8 +241,8 @@ export function HomePage({ periodId, onPeriod }: Props) {
       return;
     }
     const raw = kgDraft[entryId] ?? (fallbackKg !== undefined ? String(fallbackKg) : "");
-    const kg = Number(raw);
-    if (!Number.isFinite(kg) || kg <= 0) {
+    const kg = parseKg(raw);
+    if (kg === undefined) {
       setError("Укажите кг больше нуля");
       return;
     }
@@ -305,8 +306,8 @@ export function HomePage({ periodId, onPeriod }: Props) {
       return;
     }
     const key = `${collectorId}:${date}`;
-    const kg = Number(kgDraft[key] ?? "");
-    if (!Number.isFinite(kg) || kg <= 0) {
+    const kg = parseKg(kgDraft[key] ?? "");
+    if (kg === undefined) {
       setError("Укажите кг больше нуля");
       return;
     }
@@ -415,13 +416,13 @@ export function HomePage({ periodId, onPeriod }: Props) {
     if (!token) {
       return;
     }
-    const kg = Number(storeKg);
-    const totalRub = Number(storeRub);
-    if (!Number.isFinite(kg) || kg <= 0) {
+    const kg = parseKg(storeKg);
+    const totalRub = parseKg(storeRub);
+    if (kg === undefined) {
       setError("Укажите кг из счёта магазина");
       return;
     }
-    if (!Number.isFinite(totalRub) || totalRub <= 0) {
+    if (totalRub === undefined) {
       setError("Укажите сумму из счёта магазина");
       return;
     }

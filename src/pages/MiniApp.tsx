@@ -9,6 +9,7 @@ import {
   formatMoney,
   fmtHuman,
   initials,
+  parseKg,
   weekdayFromIso,
 } from "../lib/format";
 import { bootMaxWebApp } from "../lib/max";
@@ -107,7 +108,6 @@ export function MiniAppPage() {
   const [forId, setForId] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [dayOpen, setDayOpen] = useState(false);
   const [epoch, setEpoch] = useState(0);
   const cameraInput = useRef<HTMLInputElement>(null);
   const galleryInput = useRef<HTMLInputElement>(null);
@@ -146,9 +146,6 @@ export function MiniAppPage() {
         setDate((current) => {
           const next = defaultOpenDate(value, current);
           setForId((prev) => (current && next === current ? prev : defaultForId(value, next)));
-          if (!current && !isMyScheduledDay(value, next)) {
-            setDayOpen(true);
-          }
           return next;
         });
       })
@@ -183,20 +180,22 @@ export function MiniAppPage() {
   const selectedDay = home?.days.find((day) => day.date === date);
   const myDay = Boolean(home && date && isMyScheduledDay(home, date));
   const whoOptions = home && date ? scheduledOthers(home, date) : [];
+  const takenByOther = Boolean(
+    selectedDay?.takenBy && home?.collector && selectedDay.takenBy._id !== home.collector._id,
+  );
   const showWho = Boolean(
     home?.collector?.active &&
       home.period?.status === "open" &&
       selectedDay &&
       !myDay &&
-      whoOptions.length > 0,
+      whoOptions.length > 0 &&
+      !takenByOther,
   );
   const forPerson = whoOptions.find((person) => person._id === forId) ?? whoOptions[0];
-  const canSubmit = Number(kg) > 0 || photo !== null;
-  const kgPreview = Number(kg);
+  const kgValue = parseKg(kg);
+  const canSubmit = (kgValue !== undefined || photo !== null) && !takenByOther;
   const amountPreview =
-    home?.period && Number.isFinite(kgPreview) && kgPreview > 0
-      ? kgPreview * home.period.rate
-      : null;
+    home?.period && kgValue !== undefined ? kgValue * home.period.rate : null;
   const todaySelected = Boolean(home && date === home.today.date);
 
   function pickDate(next: string, opts?: { scroll?: boolean }) {
@@ -207,9 +206,6 @@ export function MiniAppPage() {
     setDate(next);
     if (home) {
       setForId(defaultForId(home, next));
-      if (!isMyScheduledDay(home, next)) {
-        setDayOpen(true);
-      }
     }
     if (opts?.scroll) {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -226,6 +222,14 @@ export function MiniAppPage() {
       setError("Нельзя внести за день, который ещё не наступил");
       return;
     }
+    if (takenByOther) {
+      setError(
+        selectedDay?.takenBy
+          ? `За этот день уже внёс ${selectedDay.takenBy.name}`
+          : "За этот день уже внёс другой участник",
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     setToast(null);
@@ -234,7 +238,7 @@ export function MiniAppPage() {
         initData,
         {
           date,
-          kg: Number(kg) > 0 ? Number(kg) : undefined,
+          kg: kgValue,
           collectorId: showWho ? forId || forPerson?._id : undefined,
           photo: photo ?? undefined,
         },
@@ -242,7 +246,6 @@ export function MiniAppPage() {
       );
       setKg("");
       setPhoto(null);
-      setDayOpen(false);
       haptic("success");
       setToast(
         showWho && forPerson
@@ -269,7 +272,6 @@ export function MiniAppPage() {
       await api.miniapp.skip(initData, date, platform ?? "telegram");
       setKg("");
       setPhoto(null);
-      setDayOpen(false);
       haptic("success");
       setToast("Отметили: не брал");
       setEpoch((value) => value + 1);
@@ -296,12 +298,12 @@ export function MiniAppPage() {
       return "Отправляем";
     }
     if (showWho && forPerson) {
-      return Number(kg) > 0
-        ? `Отправить ${formatKg(Number(kg))} кг за ${firstName(forPerson.name)}`
+      return kgValue !== undefined
+        ? `Отправить ${formatKg(kgValue)} кг за ${firstName(forPerson.name)}`
         : `Отправить фото за ${firstName(forPerson.name)}`;
     }
-    if (Number(kg) > 0) {
-      return `Отправить ${formatKg(Number(kg))} кг`;
+    if (kgValue !== undefined) {
+      return `Отправить ${formatKg(kgValue)} кг`;
     }
     return "Отправить фото";
   }
@@ -347,19 +349,19 @@ export function MiniAppPage() {
       ? `Сегодня, ${DAY_SHORT[weekdayFromIso(date)]}`
       : `Сегодня · не твой день`
     : `${DAY_SHORT[weekdayFromIso(date)]} ${fmtHuman(date)}`;
-  const contextWho = myDay
-    ? "кг запишем тебе"
-    : forPerson
-      ? `день ${firstName(forPerson.name)} · кг тебе`
-      : "кг запишем тебе";
+  const contextWho = takenByOther && selectedDay?.takenBy
+    ? `уже внёс ${firstName(selectedDay.takenBy.name)}`
+    : myDay
+      ? "кг запишем тебе"
+      : forPerson
+        ? `день ${firstName(forPerson.name)} · кг тебе`
+        : "кг запишем тебе";
   const dayClosed = Boolean(
     home.me?.entries.some(
       (entry) => entry.date === date && entry.status !== "rejected",
     ),
   );
-  const canSkip = Boolean(
-    myDay && periodOpen && date && date <= home.today.date && !dayClosed,
-  );
+  const canSkip = Boolean(myDay && date && date <= home.today.date && !dayClosed);
 
   return (
     <div className="miniapp">
@@ -474,39 +476,22 @@ export function MiniAppPage() {
               <div className="ma-kicker">Сдать</div>
               <h2>Ведомость и кг</h2>
             </div>
-            <button
-              type="button"
-              className="ma-ghost"
-              onClick={() => {
-                haptic("select");
-                setDayOpen((value) => !value);
-              }}
-            >
-              {dayOpen ? "Готово" : "Другой день"}
-            </button>
           </div>
 
-          <button
-            type="button"
-            className="ma-context"
-            onClick={() => {
-              haptic("select");
-              setDayOpen((value) => !value);
-            }}
-          >
+          <div className="ma-context">
             <span>
               <strong>{contextLabel}</strong>
               <small>{contextWho}</small>
             </span>
-            <span className="ma-chevron">{dayOpen ? "↑" : "↓"}</span>
-          </button>
+          </div>
 
-          {dayOpen ? (
-            <div className="ma-days" role="listbox" aria-label="День">
+          <div className="ma-days" role="listbox" aria-label="День">
               {openDays(home).map((day) => {
                 const mine =
                   home.collector?.dayOfWeek !== null && day.weekday === home.collector?.dayOfWeek;
                 const other = day.scheduled.find((person) => person._id !== home.collector?._id);
+                const takenOther =
+                  day.takenBy && home.collector && day.takenBy._id !== home.collector._id;
                 const selected = date === day.date;
                 const isToday = day.date === home.today.date;
                 return (
@@ -520,19 +505,22 @@ export function MiniAppPage() {
                   >
                     <em>{isToday ? "сегодня" : DAY_SHORT[day.weekday]}</em>
                     <strong>{fmtHuman(day.date)}</strong>
-                    <small>{mine ? "ты" : other ? firstName(other.name) : "—"}</small>
+                    <small>
+                      {takenOther
+                        ? firstName(day.takenBy?.name ?? "")
+                        : mine
+                          ? "ты"
+                          : other
+                            ? firstName(other.name)
+                            : "—"}
+                    </small>
                   </button>
                 );
               })}
             </div>
-          ) : null}
 
           {showWho ? (
             <div className="ma-who">
-              <div className="ma-kicker">За кого взял</div>
-              <p className="ma-plus dim" style={{ margin: "0 0 8px" }}>
-                День закроется у него, кг и сумма — тебе.
-              </p>
               <div className="ma-people">
                 {whoOptions.map((person) => (
                   <button
@@ -550,6 +538,13 @@ export function MiniAppPage() {
                 ))}
               </div>
             </div>
+          ) : null}
+
+          {takenByOther && selectedDay?.takenBy ? (
+            <p className="ma-plus dim" style={{ margin: "0 0 12px" }}>
+              За этот день уже внёс {selectedDay.takenBy.name}. Вторая сдача от другого
+              участника не принимается.
+            </p>
           ) : null}
 
           <label className="ma-kg-block" htmlFor="maKg">
@@ -624,8 +619,8 @@ export function MiniAppPage() {
                 Не брал
               </button>
             ) : null}
-            <button className="ma-go" disabled={busy || !canSubmit}>
-              {submitLabel()}
+            <button className="ma-go" disabled={busy || !canSubmit || takenByOther}>
+              {takenByOther ? "День уже закрыт" : submitLabel()}
             </button>
           </div>
         </form>

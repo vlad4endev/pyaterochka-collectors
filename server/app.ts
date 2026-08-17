@@ -24,6 +24,7 @@ import {
   assertDateInPeriod,
   currentMoscowWeek,
   entryPayeeId,
+  parseKgInput,
   patchPeriod,
 } from "./lib/domain";
 import { collectorDto, pendingDto, periodDto, settingsDto } from "./lib/dto";
@@ -35,8 +36,14 @@ import {
 } from "./lib/errors";
 import { assertReminderKind, buildReminder, buildSummary, sendSettlementInvoices } from "./lib/messages";
 import { createPeriodSettlement, getPeriodSettlement, markCollectorPaid, syncUnpaidCollectorPayment } from "./lib/payments";
-import { loadInvoicePhoto, saveInvoicePhoto } from "./lib/invoices";
 import {
+  isUploadPhotoRef,
+  loadInvoicePhoto,
+  persistInvoicePhotoRef,
+  saveInvoicePhotoIfPresent,
+} from "./lib/invoices";
+import {
+  assertDateFreeForSubmitter,
   createCollectorCreditEntry,
   createCollectorManualEntry,
   getMiniHome,
@@ -302,7 +309,19 @@ authed.get("/entries/:id/photo", async (c) => {
   if (!entry?.telegramFileId) {
     throw new HttpError("Photo not found", 404);
   }
-  const photo = await loadInvoicePhoto(entry.telegramFileId);
+  let photoRef = entry.telegramFileId;
+  if (!isUploadPhotoRef(photoRef)) {
+    try {
+      photoRef = await persistInvoicePhotoRef(photoRef);
+      await db.entry.update({
+        where: { id: entry.id },
+        data: { telegramFileId: photoRef },
+      });
+    } catch (err) {
+      console.error("Failed to persist Telegram invoice photo", err);
+    }
+  }
+  const photo = await loadInvoicePhoto(photoRef);
   return c.body(new Uint8Array(photo.bytes), 200, {
     "Content-Type": photo.contentType,
     "Cache-Control": "private, max-age=300",
@@ -322,10 +341,14 @@ authed.post("/entries/:id/confirm", async (c) => {
   await requireUnsettledPeriod(db, entry.periodId);
   const payeeId = entryPayeeId(entry);
   await requireCollectorUnpaid(db, entry.periodId, payeeId);
+  const kg = parseKgInput(body.kg);
+  if (kg === undefined) {
+    throw new HttpError("kg must be greater than 0");
+  }
   await db.entry.update({
     where: { id },
     data: {
-      kg: assertPositiveKg(body.kg ?? 0),
+      kg: assertPositiveKg(kg),
       status: "confirmed",
       confirmedAt: new Date(),
     },
@@ -365,12 +388,17 @@ authed.post("/entries/manual", async (c) => {
   const period = await requireUnsettledPeriod(db, periodId);
   await requireCollectorUnpaid(db, periodId, collectorId);
   const date = assertDateInPeriod(body.date ?? "", period.startDate, period.endDate);
+  const kg = parseKgInput(body.kg);
+  if (kg === undefined) {
+    throw new HttpError("kg must be greater than 0");
+  }
+  await assertDateFreeForSubmitter(db, periodId, date, collectorId);
   const row = await db.entry.create({
     data: {
       periodId,
       collectorId,
       date,
-      kg: assertPositiveKg(body.kg ?? 0),
+      kg: assertPositiveKg(kg),
       source: "manual",
       status: "confirmed",
       note: body.note,
@@ -415,13 +443,18 @@ authed.post("/entries/credit", async (c) => {
   await requireCollector(db, collectorId);
   await requireCollectorUnpaid(db, periodId, creditedByCollectorId);
   const date = assertDateInPeriod(body.date ?? "", period.startDate, period.endDate);
+  const kg = parseKgInput(body.kg);
+  if (kg === undefined) {
+    throw new HttpError("kg must be greater than 0");
+  }
+  await assertDateFreeForSubmitter(db, periodId, date, creditedByCollectorId);
   const row = await db.entry.create({
     data: {
       periodId,
       collectorId,
       creditedByCollectorId,
       date,
-      kg: assertPositiveKg(body.kg ?? 0),
+      kg: assertPositiveKg(kg),
       source: "manual",
       status: "confirmed",
       note: body.note,
@@ -731,8 +764,16 @@ authed.put("/max/bot", async (c) => {
         ? assertMiniAppUrl(body.miniAppUrl)
         : null;
   await patchDefaultSettings(db, { maxBotToken, miniAppUrl });
-  await restartMaxBot();
-  await restartBot();
+  try {
+    await restartMaxBot();
+  } catch (err) {
+    console.error("MAX bot restart failed", err);
+  }
+  try {
+    await restartBot();
+  } catch (err) {
+    console.error("Telegram bot restart after MAX save failed", err);
+  }
   return c.json(await getMaxStatus());
 });
 
@@ -751,7 +792,11 @@ authed.post("/max/bot/check", async (c) => {
 
 authed.post("/max/bot/clear", async (c) => {
   await patchDefaultSettings(db, { maxBotToken: null });
-  await restartMaxBot();
+  try {
+    await restartMaxBot();
+  } catch (err) {
+    console.error("MAX bot restart after token clear failed", err);
+  }
   return c.json(await getMaxStatus());
 });
 
@@ -881,7 +926,7 @@ mini.get("/home", async (c) => {
     await getMiniHome(
       db,
       {
-        id: Number(c.get("userId")),
+        id: c.get("userId"),
         firstName: c.get("firstName"),
         platform: c.get("platform"),
       },
@@ -903,10 +948,10 @@ async function readMiniReport(c: { req: { header: (name: string) => string | und
   const contentType = c.req.header("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const parsed = await c.req.parseBody();
-    const kgRaw = typeof parsed.kg === "string" ? parsed.kg.trim() : "";
+    const kgRaw = typeof parsed.kg === "string" ? parsed.kg : parsed.kg;
     return {
       date: typeof parsed.date === "string" ? parsed.date : "",
-      kg: kgRaw.length > 0 ? Number(kgRaw) : undefined,
+      kg: parseKgInput(kgRaw),
       note: typeof parsed.note === "string" ? parsed.note : undefined,
       forCollectorId: typeof parsed.collectorId === "string" ? parsed.collectorId : undefined,
       photo: isUploadFile(parsed.photo) ? parsed.photo : undefined,
@@ -914,13 +959,13 @@ async function readMiniReport(c: { req: { header: (name: string) => string | und
   }
   const body = await c.req.json<{
     date?: string;
-    kg?: number;
+    kg?: number | string;
     note?: string;
     collectorId?: string;
   }>();
   return {
     date: body.date ?? "",
-    kg: body.kg,
+    kg: parseKgInput(body.kg),
     note: body.note,
     forCollectorId: body.collectorId,
     photo: undefined,
@@ -930,7 +975,7 @@ async function readMiniReport(c: { req: { header: (name: string) => string | und
 mini.post("/entries", async (c) => {
   const collector = requireActiveCollector(c.get("collector"));
   const body = await readMiniReport(c);
-  const photoRef = body.photo ? await saveInvoicePhoto(body.photo) : undefined;
+  const photoRef = await saveInvoicePhotoIfPresent(body.photo);
   const id = await submitCollectorReport(db, collector, {
     date: body.date,
     kg: body.kg,

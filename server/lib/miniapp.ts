@@ -10,6 +10,8 @@ import {
   assertPositiveKg,
   getOpenPeriod,
   getSettings,
+  isPeriodEditable,
+  parseKgInput,
   requireCollector,
   requireOpenPeriod,
   requireUnsettledPeriod,
@@ -40,6 +42,7 @@ export type MiniDay = {
   date: string;
   weekday: number;
   scheduled: MiniPerson[];
+  takenBy: MiniPerson | null;
 };
 
 export type MiniAppPlatform = "telegram" | "max";
@@ -146,12 +149,36 @@ function toPerson(row: Collector): MiniPerson {
   return { _id: row.id, name: row.name, dayOfWeek: row.dayOfWeek };
 }
 
+export async function assertDateFreeForSubmitter(
+  db: Pick<PrismaClient, "entry" | "collector">,
+  periodId: string,
+  date: string,
+  submitterId: string,
+): Promise<void> {
+  const existing = await db.entry.findMany({
+    where: {
+      periodId,
+      date,
+      status: { in: ["pending", "confirmed"] },
+    },
+    take: 50,
+  });
+  const other = existing.find((entry) => entryPayeeId(entry) !== submitterId);
+  if (!other) {
+    return;
+  }
+  const who = await db.collector.findUnique({ where: { id: entryPayeeId(other) } });
+  throw new HttpError("This day was already submitted by another collector", 409, {
+    collectorName: who?.name,
+  });
+}
+
 export async function getMiniHome(
   db: PrismaClient,
-  account: { id: number; firstName: string; platform: MiniAppPlatform },
+  account: { id: string; firstName: string; platform: MiniAppPlatform },
   nowMs: number,
 ): Promise<MiniHome> {
-  const userId = String(account.id);
+  const userId = account.id;
   const collector = await findCollectorByPlatform(db, account.platform, userId);
   const period = await getOpenPeriod(db);
   const settings = await getSettings(db);
@@ -177,25 +204,47 @@ export async function getMiniHome(
     take: 100,
     orderBy: { name: "asc" },
   });
+  const byId = new Map(collectors.map((row) => [row.id, row]));
+  const editablePeriods = await listEditablePeriods(db, nowMs);
+  const occupied = editablePeriods.length
+    ? await db.entry.findMany({
+        where: {
+          periodId: { in: editablePeriods.map((row) => row.id) },
+          status: { in: ["pending", "confirmed"] },
+        },
+        take: 400,
+      })
+    : [];
+  const takenById = new Map<string, string>();
+  for (const entry of occupied) {
+    if (!takenById.has(entry.date)) {
+      takenById.set(entry.date, entryPayeeId(entry));
+    }
+  }
   const active = collectors.filter((row) => row.active);
   const others = collector
     ? active.filter((row) => row.id !== collector.id).map(toPerson)
     : [];
-  const days: MiniDay[] = period
-    ? eachDateInclusive(period.startDate, period.endDate)
-        .filter((date) => date <= clock.date)
-        .map((date) => {
-          const dayWeekday = weekdayFromIso(date);
-          return {
-            date,
-            weekday: dayWeekday,
-            scheduled: active
-              .filter((row) => row.dayOfWeek === dayWeekday)
-              .map(toPerson),
-          };
-        })
-        .reverse()
-    : [];
+  const openDates = [
+    ...new Set(
+      editablePeriods.flatMap((row) =>
+        eachDateInclusive(row.startDate, row.endDate).filter((date) => date <= clock.date),
+      ),
+    ),
+  ].sort((a, b) => (a < b ? 1 : -1));
+  const days: MiniDay[] = openDates.map((date) => {
+    const dayWeekday = weekdayFromIso(date);
+    const takenId = takenById.get(date);
+    const taken = takenId ? byId.get(takenId) : undefined;
+    return {
+      date,
+      weekday: dayWeekday,
+      scheduled: active
+        .filter((row) => row.dayOfWeek === dayWeekday)
+        .map(toPerson),
+      takenBy: taken ? toPerson(taken) : null,
+    };
+  });
 
   const identity = { id: userId, firstName: account.firstName };
   const base = {
@@ -239,19 +288,18 @@ export async function getMiniHome(
 
   const entries = await db.entry.findMany({
     where: {
-      periodId: period.id,
+      periodId: { in: editablePeriods.map((row) => row.id) },
       OR: [{ collectorId: collector.id }, { creditedByCollectorId: collector.id }],
     },
-    take: 200,
+    take: 400,
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   });
-  const byId = new Map(collectors.map((row) => [row.id, row]));
   let kg = 0;
   const itemRows: MiniEntry[] = [];
   for (const entry of entries) {
     if (entry.status === "confirmed" && entry.kg !== null) {
       const payeeId = entryPayeeId(entry);
-      if (payeeId === collector.id) {
+      if (payeeId === collector.id && entry.periodId === period.id) {
         kg += entry.kg;
       }
     }
@@ -283,10 +331,7 @@ export async function getMiniHome(
   const myEntries = entries.filter((entry) => entry.collectorId === collector.id);
   const gaps: Array<{ date: string }> = [];
   if (collector.active && collector.dayOfWeek !== null) {
-    for (const date of eachDateInclusive(period.startDate, period.endDate)) {
-      if (date > clock.date) {
-        continue;
-      }
+    for (const date of openDates) {
       if (weekdayFromIso(date) !== collector.dayOfWeek) {
         continue;
       }
@@ -336,6 +381,37 @@ function assertDateOpenForSubmit(
   return iso;
 }
 
+async function listEditablePeriods(
+  db: PrismaClient,
+  nowMs: number,
+): Promise<Period[]> {
+  const rows = await db.period.findMany({
+    where: { settledAt: null },
+    orderBy: { startDate: "asc" },
+  });
+  return rows.filter((period) => isPeriodEditable(period, nowMs));
+}
+
+async function periodForCollectorDate(
+  db: PrismaClient,
+  dateRaw: string,
+  nowMs = Date.now(),
+): Promise<{ period: Period; date: string }> {
+  const today = clockInTimeZone(STORE_TIME_ZONE, nowMs).date;
+  const date = assertDate(dateRaw);
+  if (date > today) {
+    throw new HttpError("Date is in the future");
+  }
+  const period = await db.period.findFirst({
+    where: { startDate: { lte: date }, endDate: { gte: date } },
+    orderBy: { startDate: "desc" },
+  });
+  if (!period || period.settledAt || !isPeriodEditable(period, nowMs)) {
+    throw new HttpError("Date is outside the open period");
+  }
+  return { period, date };
+}
+
 export async function createCollectorManualEntry(
   db: PrismaClient,
   collector: Collector,
@@ -372,18 +448,9 @@ export async function submitCollectorReport(
     photoRef?: string;
   },
 ): Promise<string> {
-  const period = await getOpenPeriod(db);
-  if (!period) {
-    throw new HttpError("Period not found", 404);
-  }
-  await requireOpenPeriod(db, period.id);
-  const today = clockInTimeZone(STORE_TIME_ZONE, Date.now()).date;
-  const date = assertDateOpenForSubmit(body.date, period.startDate, period.endDate, today);
-  const kgRaw = body.kg;
-  const kg =
-    kgRaw === undefined || kgRaw === null || Number.isNaN(kgRaw) || kgRaw <= 0
-      ? undefined
-      : assertPositiveKg(kgRaw);
+  const { period, date } = await periodForCollectorDate(db, body.date);
+  const parsedKg = parseKgInput(body.kg);
+  const kg = parsedKg === undefined ? undefined : assertPositiveKg(parsedKg);
   if (!kg && !body.photoRef) {
     throw new HttpError("Add kilograms or a photo");
   }
@@ -398,18 +465,22 @@ export async function submitCollectorReport(
   const targetId = forCollectorId && forCollectorId !== collector.id ? forCollectorId : collector.id;
   const creditedByCollectorId = targetId === collector.id ? undefined : collector.id;
 
-  const row = await db.entry.create({
-    data: {
-      periodId: period.id,
-      collectorId: targetId,
-      creditedByCollectorId,
-      date,
-      kg,
-      source: body.photoRef ? "invoice" : "manual",
-      status: "pending",
-      telegramFileId: body.photoRef,
-      note: body.note?.trim() || undefined,
-    },
+  const row = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Period" WHERE id = ${period.id} FOR UPDATE`;
+    await assertDateFreeForSubmitter(tx, period.id, date, collector.id);
+    return await tx.entry.create({
+      data: {
+        periodId: period.id,
+        collectorId: targetId,
+        creditedByCollectorId,
+        date,
+        kg,
+        source: body.photoRef ? "invoice" : "manual",
+        status: "pending",
+        telegramFileId: body.photoRef,
+        note: body.note?.trim() || undefined,
+      },
+    });
   });
   return row.id;
 }
@@ -457,11 +528,7 @@ export async function skipOwnScheduledDay(
   collector: Collector,
   date: string,
 ): Promise<string> {
-  const period = await getOpenPeriod(db);
-  if (!period) {
-    throw new HttpError("Period not found", 404);
-  }
-  await requireOpenPeriod(db, period.id);
+  const { period } = await periodForCollectorDate(db, date);
   return await skipCollectorDay(db, period, collector, date);
 }
 
@@ -491,15 +558,19 @@ export async function createInvoiceFromPhoto(
   await requireOpenPeriod(db, period.id);
   const date = clockInTimeZone(STORE_TIME_ZONE, nowMs).date;
   assertDateInPeriod(date, period.startDate, period.endDate);
-  await db.entry.create({
-    data: {
-      periodId: period.id,
-      collectorId: collector.id,
-      date,
-      source: "invoice",
-      status: "pending",
-      telegramFileId: fileId,
-    },
+  await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Period" WHERE id = ${period.id} FOR UPDATE`;
+    await assertDateFreeForSubmitter(tx, period.id, date, collector.id);
+    await tx.entry.create({
+      data: {
+        periodId: period.id,
+        collectorId: collector.id,
+        date,
+        source: "invoice",
+        status: "pending",
+        telegramFileId: fileId,
+      },
+    });
   });
   return { collectorName: collector.name, date };
 }
