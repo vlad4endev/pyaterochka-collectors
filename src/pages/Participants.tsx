@@ -39,6 +39,13 @@ export function ParticipantsPage() {
     try {
       await api.collectors.update(token, collectorId, fields);
       refreshData();
+      if (fields.maxUserId !== undefined) {
+        setToast(
+          fields.maxUserId
+            ? "MAX ID сохранён — бот узнает участника"
+            : "MAX ID снят",
+        );
+      }
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -76,7 +83,7 @@ export function ParticipantsPage() {
     <>
       <PageHeader
         title="Участники"
-        sub="День недели нужен, чтобы админка сама видела пропуски. Имя, Telegram ID и MAX ID правятся прямо в таблице."
+        sub="MAX ID — число из MAX-бота после /start. По нему бот узнаёт сборщика. Telegram ID и имя тоже правятся в таблице."
         actions={
           showAdd ? undefined : (
             <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}>
@@ -97,8 +104,8 @@ export function ParticipantsPage() {
                 <tr>
                   <th>Имя</th>
                   <th>День</th>
-                  <th>Telegram ID</th>
-                  <th>MAX ID</th>
+                  <th className="id-col">Telegram ID</th>
+                  <th className="id-col">MAX ID</th>
                   <th></th>
                 </tr>
               </thead>
@@ -134,10 +141,12 @@ export function ParticipantsPage() {
                         ))}
                       </select>
                     </td>
-                    <td>
+                    <td className="id-col">
                       <input
+                        key={`${collector._id}-tg-${collector.telegramUserId ?? ""}`}
                         defaultValue={collector.telegramUserId ?? ""}
-                        placeholder="не привязан"
+                        placeholder="из Telegram-бота"
+                        inputMode="numeric"
                         onBlur={(event) => {
                           const next = event.target.value.trim();
                           if (next !== (collector.telegramUserId ?? "")) {
@@ -146,10 +155,12 @@ export function ParticipantsPage() {
                         }}
                       />
                     </td>
-                    <td>
+                    <td className="id-col">
                       <input
+                        key={`${collector._id}-max-${collector.maxUserId ?? ""}`}
                         defaultValue={collector.maxUserId ?? ""}
-                        placeholder="не привязан"
+                        placeholder="из MAX-бота"
+                        inputMode="numeric"
                         onBlur={(event) => {
                           const next = event.target.value.trim();
                           if (next !== (collector.maxUserId ?? "")) {
@@ -208,18 +219,20 @@ export function ParticipantsPage() {
                 id="cTg"
                 value={telegramUserId}
                 onChange={(event) => setTelegramUserId(event.target.value)}
-                placeholder="необязательно"
+                placeholder="из Telegram-бота"
+                inputMode="numeric"
               />
             </div>
-            <div className="field">
-              <label htmlFor="cMax">MAX ID</label>
-              <input
-                id="cMax"
-                value={maxUserId}
-                onChange={(event) => setMaxUserId(event.target.value)}
-                placeholder="необязательно"
-              />
-            </div>
+          </div>
+          <div className="field">
+            <label htmlFor="cMax">MAX ID</label>
+            <input
+              id="cMax"
+              value={maxUserId}
+              onChange={(event) => setMaxUserId(event.target.value)}
+              placeholder="число после /start в MAX-боте"
+              inputMode="numeric"
+            />
           </div>
           <div className="msg-actions">
             <button className="btn-primary" disabled={busy || name.trim().length < 1}>

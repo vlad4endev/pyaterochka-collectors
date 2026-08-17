@@ -18,6 +18,7 @@ export type MaxUser = {
 export type MaxRuntime = {
   botToken: string | null;
   botUsername: string | null;
+  botName: string | null;
   botRunning: boolean;
 };
 
@@ -25,6 +26,7 @@ export type MaxStatus = {
   botTokenSet: boolean;
   botTokenSource: "database" | "env" | null;
   botUsername: string | null;
+  botName: string | null;
   botRunning: boolean;
   miniAppUrl: string | null;
   groupChatId: string | null;
@@ -34,6 +36,7 @@ export type MaxStatus = {
 let runtime: MaxRuntime = {
   botToken: null,
   botUsername: null,
+  botName: null,
   botRunning: false,
 };
 
@@ -49,6 +52,7 @@ export async function refreshMaxRuntime(): Promise<MaxRuntime> {
     ...runtime,
     botToken,
     botUsername: botToken ? runtime.botUsername : null,
+    botName: botToken ? runtime.botName : null,
     botRunning: botToken ? runtime.botRunning : false,
   };
   return runtime;
@@ -100,9 +104,19 @@ function maxErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-export async function fetchMaxBotIdentity(token: string): Promise<{ username: string; id: number }> {
-  const response = await maxFetch(token, "/me");
+export async function fetchMaxBotIdentity(
+  token: string,
+): Promise<{ username: string | null; name: string; id: number }> {
+  let response: Response;
+  try {
+    response = await maxFetch(token, "/me");
+  } catch {
+    throw new HttpError("Failed to reach MAX API", 503);
+  }
   const payload: unknown = await response.json().catch(() => null);
+  if (response.status === 401 || response.status === 403) {
+    throw new HttpError("Invalid MAX bot token");
+  }
   if (
     typeof payload !== "object" ||
     payload === null ||
@@ -116,11 +130,12 @@ export async function fetchMaxBotIdentity(token: string): Promise<{ username: st
   const username =
     "username" in payload && typeof payload.username === "string" && payload.username.trim()
       ? payload.username.replace(/^@/, "")
-      : "";
-  if (!username) {
-    throw new HttpError("Invalid MAX bot token");
-  }
-  return { username, id: payload.user_id };
+      : null;
+  const name =
+    "name" in payload && typeof payload.name === "string" && payload.name.trim()
+      ? payload.name.trim()
+      : username ?? "бот";
+  return { username, name, id: payload.user_id };
 }
 
 export async function fetchMaxChatTitle(token: string, chatId: string): Promise<string | null> {
@@ -178,6 +193,7 @@ export async function getMaxStatus(): Promise<MaxStatus> {
     botTokenSet: Boolean(runtime.botToken),
     botTokenSource: dbToken ? "database" : envToken ? "env" : null,
     botUsername: runtime.botUsername,
+    botName: runtime.botName,
     botRunning: runtime.botRunning,
     miniAppUrl: getMiniAppUrl(),
     groupChatId: settings?.maxGroupChatId ?? null,

@@ -64,6 +64,7 @@ import {
   fetchMaxChatTitle,
   getMaxBotToken,
   getMaxStatus,
+  patchMaxRuntime,
   sendMaxMessage,
   verifyMaxInitData,
 } from "./lib/max";
@@ -716,8 +717,11 @@ authed.put("/max/bot", async (c) => {
   const current = await getSettings(db);
   let maxBotToken = current?.maxBotToken ?? null;
   if (typeof body.botToken === "string" && body.botToken.trim().length > 0) {
-    await fetchMaxBotIdentity(body.botToken.trim());
+    const identity = await fetchMaxBotIdentity(body.botToken.trim());
     maxBotToken = body.botToken.trim();
+    patchMaxRuntime({ botUsername: identity.username, botName: identity.name });
+  } else if (!maxBotToken && !process.env.MAX_BOT_TOKEN?.trim()) {
+    throw new HttpError("MAX bot token is required");
   }
   const miniAppUrl =
     body.miniAppUrl === undefined
@@ -729,6 +733,19 @@ authed.put("/max/bot", async (c) => {
   await restartMaxBot();
   await restartBot();
   return c.json(await getMaxStatus());
+});
+
+authed.post("/max/bot/check", async (c) => {
+  let body: { botToken?: string } = {};
+  try {
+    body = await c.req.json<{ botToken?: string }>();
+  } catch {
+    body = {};
+  }
+  const candidate = typeof body.botToken === "string" ? body.botToken.trim() : "";
+  const token = candidate || (await getMaxBotToken());
+  const me = await fetchMaxBotIdentity(token);
+  return c.json({ ok: true, name: me.name, username: me.username });
 });
 
 authed.post("/max/bot/clear", async (c) => {

@@ -691,6 +691,13 @@ td select:focus {
   padding: 6px 8px;
   border-radius: 8px;
 }
+th.id-col,
+td.id-col {
+  min-width: 148px;
+}
+td.id-col input {
+  font-variant-numeric: tabular-nums;
+}
 .toggle-pill {
   font-size: 11px;
   font-weight: 700;

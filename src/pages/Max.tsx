@@ -20,7 +20,9 @@ export function MaxPage() {
   const [groupChatId, setGroupChatId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"bot" | "clear" | "chat" | "unlink" | "test" | null>(null);
+  const [busy, setBusy] = useState<
+    "bot" | "clear" | "check" | "chat" | "unlink" | "test" | null
+  >(null);
 
   useEffect(() => {
     if (!data) {
@@ -49,6 +51,10 @@ export function MaxPage() {
     event.preventDefault();
     setError(null);
     setToast(null);
+    if (!current?.botTokenSet && botToken.trim().length < 1) {
+      setError("Вставьте токен MAX-бота, чтобы подключить его");
+      return;
+    }
     setBusy("bot");
     try {
       const next = await api.max.saveBot(token ?? "", {
@@ -58,8 +64,31 @@ export function MaxPage() {
       setStatus(next);
       setBotToken("");
       setMiniAppUrl(next.miniAppUrl ?? "");
-      setToast("Настройки MAX-бота сохранены ✓");
+      setToast(
+        next.botRunning
+          ? `Бот подключён${next.botName ? ` · ${next.botName}` : ""} ✓`
+          : "Данные сохранены, бот ещё не запустился",
+      );
       reload();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onCheckBot() {
+    setError(null);
+    setToast(null);
+    if (!current?.botTokenSet && botToken.trim().length < 1) {
+      setError("Вставьте токен MAX-бота");
+      return;
+    }
+    setBusy("check");
+    try {
+      const result = await api.max.checkBot(token ?? "", botToken.trim() || undefined);
+      const label = result.username ? `${result.name} (@${result.username})` : result.name;
+      setToast(`Связь с MAX есть · ${label}`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -148,30 +177,36 @@ export function MaxPage() {
     <div>
       <PageHeader
         title="MAX"
-        sub="Чат-бот и мини-приложение MAX — тот же https URL, что и в Telegram"
+        sub="Сюда вставляется токен чат-бота — после сохранения админка сама подключается к MAX"
       />
 
       <form className="card" onSubmit={(event) => void onSaveBot(event)}>
-        <h2>Бот</h2>
+        <h2>Подключение бота</h2>
         <div className="h2-sub">
-          Токен выдаёт{" "}
+          Токен берётся на{" "}
+          <a href="https://business.max.ru" target="_blank" rel="noreferrer">
+            платформе MAX для партнёров
+          </a>
+          : Чат-боты → Расширенные настройки → Настроить. Либо в{" "}
           <a href="https://max.ru/masterbot" target="_blank" rel="noreferrer">
             Master Bot
           </a>
-          . Mini App подключается к чат-боту в{" "}
-          <a href="https://business.max.ru" target="_blank" rel="noreferrer">
-            кабинете MAX
-          </a>
-          : чат-бот → расширенные настройки → URL мини-приложения (https). После сохранения бот
-          запускается сам.
+          . Mini App — тот же https URL, что и для Telegram; его ещё нужно указать в настройках
+          чат-бота MAX.
         </div>
         <div className="status-line">
           {current.botRunning ? (
-            <span className="badge ok">{botLabel ? `работает ${botLabel}` : "бот работает"}</span>
+            <span className="badge ok">
+              {current.botName
+                ? `подключён · ${current.botName}${botLabel ? ` ${botLabel}` : ""}`
+                : botLabel
+                  ? `работает ${botLabel}`
+                  : "бот работает"}
+            </span>
           ) : current.botTokenSet ? (
             <span className="badge warn">токен есть, бот не запущен</span>
           ) : (
-            <span className="badge warn">не настроен</span>
+            <span className="badge warn">не подключён — вставьте токен</span>
           )}
           {current.botTokenSource === "env" ? (
             <span className="badge info">сейчас из .env</span>
@@ -186,7 +221,7 @@ export function MaxPage() {
             placeholder={
               current.botTokenSet
                 ? "Токен сохранён — введите новый, чтобы заменить"
-                : "токен из Master Bot"
+                : "AAH…"
             }
             value={botToken}
             onChange={(event) => setBotToken(event.target.value)}
@@ -203,8 +238,23 @@ export function MaxPage() {
           />
         </div>
         <div className="btn-row">
-          <button className="btn-primary" disabled={busy !== null}>
-            {busy === "bot" ? "Сохраняем…" : "Сохранить бота"}
+          <button
+            className="btn-primary"
+            disabled={busy !== null || (!current.botTokenSet && botToken.trim().length < 1)}
+          >
+            {busy === "bot"
+              ? "Подключаем…"
+              : current.botTokenSet
+                ? "Сохранить"
+                : "Подключить бота"}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={busy !== null || (!current.botTokenSet && botToken.trim().length < 1)}
+            onClick={() => void onCheckBot()}
+          >
+            {busy === "check" ? "Проверяем…" : "Проверить связь"}
           </button>
           {current.botTokenSource === "database" ? (
             <button
@@ -213,7 +263,7 @@ export function MaxPage() {
               disabled={busy !== null}
               onClick={() => void onClearToken()}
             >
-              {busy === "clear" ? "Удаляем…" : "Удалить токен"}
+              {busy === "clear" ? "Удаляем…" : "Отключить"}
             </button>
           ) : null}
         </div>

@@ -201,7 +201,7 @@ async function restartMaxBotInner(): Promise<void> {
   const next = await refreshMaxRuntime();
   const token = next.botToken;
   if (!token) {
-    patchMaxRuntime({ botUsername: null, botRunning: false });
+    patchMaxRuntime({ botUsername: null, botName: null, botRunning: false });
     console.warn("MAX_BOT_TOKEN is not set — MAX bot is skipped");
     return;
   }
@@ -216,10 +216,14 @@ async function restartMaxBotInner(): Promise<void> {
     ]);
     const me = await bot.api.getMyInfo();
     const username = me.username?.replace(/^@/, "") || null;
-    patchMaxRuntime({ botUsername: username, botRunning: true });
+    patchMaxRuntime({
+      botUsername: username,
+      botName: me.name || username,
+      botRunning: true,
+    });
   } catch (err) {
     currentBot = null;
-    patchMaxRuntime({ botUsername: null, botRunning: false });
+    patchMaxRuntime({ botUsername: null, botName: null, botRunning: false });
     throw err;
   }
 

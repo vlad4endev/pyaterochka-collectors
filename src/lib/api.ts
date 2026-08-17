@@ -152,6 +152,7 @@ export type MaxStatus = {
   botTokenSet: boolean;
   botTokenSource: "database" | "env" | null;
   botUsername: string | null;
+  botName: string | null;
   botRunning: boolean;
   miniAppUrl: string | null;
   groupChatId: string | null;
@@ -408,6 +409,12 @@ export const api = {
     ) => apiRequest<MaxStatus>("/max/bot", { method: "PUT", token, body }),
     clearBot: (token: string) =>
       apiRequest<MaxStatus>("/max/bot/clear", { method: "POST", token }),
+    checkBot: (token: string, botToken?: string) =>
+      apiRequest<{ ok: true; name: string; username: string | null }>("/max/bot/check", {
+        method: "POST",
+        token,
+        body: botToken ? { botToken } : {},
+      }),
     linkChat: (token: string, groupChatId: string) =>
       apiRequest<MaxStatus>("/max/chat", {
         method: "PUT",
