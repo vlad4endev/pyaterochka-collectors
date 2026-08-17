@@ -1,15 +1,72 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { PageHeader } from "../components/PageHeader";
-import { api, type MaxStatus } from "../lib/api";
+import { api, type MaxBotUser, type MaxStatus } from "../lib/api";
 import { errorMessage } from "../lib/format";
 import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
+
+function formatSeen(ts: number): string {
+  return new Date(ts).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function UserRow({
+  user,
+  onCopy,
+}: {
+  user: MaxBotUser;
+  onCopy: (value: string, ok: string) => void;
+}) {
+  return (
+    <tr>
+      <td>
+        <div>{user.name}</div>
+        {user.username ? <div className="h2-sub" style={{ margin: 0 }}>@{user.username}</div> : null}
+      </td>
+      <td className="id-col">
+        {user.phone ? (
+          <button
+            type="button"
+            className="btn-quiet"
+            onClick={() => onCopy(user.phone ?? "", "Телефон скопирован")}
+          >
+            {user.phone}
+          </button>
+        ) : (
+          <span className="h2-sub" style={{ margin: 0 }}>
+            не отправил
+          </span>
+        )}
+      </td>
+      <td className="id-col">
+        <button
+          type="button"
+          className="btn-quiet"
+          onClick={() => onCopy(user.maxUserId, "MAX ID скопирован")}
+        >
+          {user.maxUserId}
+        </button>
+      </td>
+      <td>{user.collectorName ?? "—"}</td>
+      <td>{formatSeen(user.lastSeenAt)}</td>
+    </tr>
+  );
+}
 
 export function MaxPage() {
   const { token } = useSession();
   const { data, reload } = useApiQuery(
     Boolean(token),
     () => api.max.get(token ?? ""),
+    [token],
+  );
+  const { data: users, reload: reloadUsers } = useApiQuery(
+    Boolean(token),
+    () => api.max.users(token ?? ""),
     [token],
   );
 
@@ -36,14 +93,15 @@ export function MaxPage() {
   }, [data, urlReady]);
 
   useEffect(() => {
-    if (!status?.botRunning || status.groupChatId) {
+    if (!status?.botRunning) {
       return;
     }
     const timer = window.setInterval(() => {
       reload();
+      reloadUsers();
     }, 4000);
     return () => window.clearInterval(timer);
-  }, [status?.botRunning, status?.groupChatId, reload]);
+  }, [status?.botRunning, reload, reloadUsers]);
 
   const current = status ?? data;
 
@@ -167,6 +225,15 @@ export function MaxPage() {
     }
   }
 
+  async function copyText(value: string, ok: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setToast(ok);
+    } catch {
+      setError("Не удалось скопировать");
+    }
+  }
+
   if (!current) {
     return <div className="loading">Загрузка…</div>;
   }
@@ -273,6 +340,44 @@ export function MaxPage() {
         Приложение открывается только из MAX-бота — кнопка «ВНЕСТИ» или команда /app. В браузере
         без бота Mini App не пускает. Каждый день в 10:00 по Москве бот пишет в личку тем, у кого в
         открытой неделе есть пропуск. Нужны MAX ID и хотя бы один /start у бота.
+      </div>
+
+      <div className="card">
+        <h2>Кто запускал бота</h2>
+        <div className="h2-sub">
+          Имя и MAX ID появляются после /start. Телефон — если человек нажал «Отправить номер».
+          Нажми на ID или номер, чтобы скопировать.
+        </div>
+        {users === undefined ? (
+          <div className="loading">Загрузка…</div>
+        ) : users.length === 0 ? (
+          <div className="empty" style={{ textAlign: "left" }}>
+            Пока никто не открывал бота.
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Имя</th>
+                  <th className="id-col">Телефон</th>
+                  <th className="id-col">MAX ID</th>
+                  <th>Участник</th>
+                  <th>Был</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <UserRow
+                    key={user.maxUserId}
+                    user={user}
+                    onCopy={(value, ok) => void copyText(value, ok)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="card">

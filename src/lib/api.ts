@@ -159,6 +159,16 @@ export type MaxStatus = {
   groupChatTitle: string | null;
 };
 
+export type MaxBotUser = {
+  maxUserId: string;
+  name: string;
+  username: string | null;
+  phone: string | null;
+  startedAt: number;
+  lastSeenAt: number;
+  collectorName: string | null;
+};
+
 export type MiniEntry = {
   _id: string;
   date: string;
@@ -424,6 +434,7 @@ export const api = {
     unlinkChat: (token: string) =>
       apiRequest<MaxStatus>("/max/chat/unlink", { method: "POST", token }),
     test: (token: string) => apiRequest<null>("/max/test", { method: "POST", token }),
+    users: (token: string) => apiRequest<MaxBotUser[]>("/max/users", { token }),
   },
   summary: (token: string, periodId: string) =>
     apiRequest<{ text: string; totalKg: number; totalRub: number }>(

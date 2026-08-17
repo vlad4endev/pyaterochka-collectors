@@ -68,6 +68,7 @@ import {
   sendMaxMessage,
   verifyMaxInitData,
 } from "./lib/max";
+import { listMaxBotUsers } from "./lib/maxUsers";
 import { assertTelegramProxyConfig } from "./lib/telegramProxy";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -779,6 +780,10 @@ authed.post("/max/test", async (c) => {
     "Бот сборщиков привязан. Сообщения из админки будут приходить сюда.",
   );
   return c.json(null);
+});
+
+authed.get("/max/users", async (c) => {
+  return c.json(await listMaxBotUsers(db));
 });
 
 authed.get("/messages/summary", async (c) => {

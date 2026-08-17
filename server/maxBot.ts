@@ -13,6 +13,7 @@ import {
   patchMaxRuntime,
   refreshMaxRuntime,
 } from "./lib/max";
+import { phoneFromVcf, upsertMaxBotUser } from "./lib/maxUsers";
 
 type OpenAppButton = {
   type: "open_app";
@@ -40,11 +41,29 @@ function firstName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
+function contactKeyboard() {
+  return Keyboard.inlineKeyboard([[Keyboard.button.requestContact("Отправить номер")]]);
+}
+
+async function rememberUser(user: {
+  user_id: number;
+  name: string;
+  username?: string | null;
+}, phone?: string | null) {
+  return await upsertMaxBotUser(db, {
+    maxUserId: String(user.user_id),
+    name: user.name,
+    username: user.username,
+    phone,
+  });
+}
+
 async function sendGreeting(ctx: Context): Promise<void> {
   const from = ctx.user;
   if (!from) {
     return;
   }
+  const saved = await rememberUser(from);
   const collector = await findCollectorByMax(db, String(from.user_id));
   const url = getMiniAppUrl();
   const text = buildGreetingText({
@@ -57,6 +76,11 @@ async function sendGreeting(ctx: Context): Promise<void> {
 
   const keyboard = appKeyboard();
   await ctx.reply(text, keyboard ? { attachments: [keyboard] } : undefined);
+  if (!saved.phone) {
+    await ctx.reply("Чтобы в админке был телефон, нажми «Отправить номер».", {
+      attachments: [contactKeyboard()],
+    });
+  }
 }
 
 async function bindCurrentChat(ctx: Context): Promise<void> {
@@ -130,6 +154,18 @@ export function createMaxBot(token: string): Bot {
     if (!from) {
       return;
     }
+    const contact = message.body.attachments?.find((item) => item.type === "contact");
+    if (contact && contact.type === "contact") {
+      const phone = phoneFromVcf(contact.payload.vcf_info);
+      await rememberUser(from, phone);
+      await ctx.reply(
+        phone
+          ? "Номер сохранён. Организатор видит имя, телефон и MAX ID в админке."
+          : "Контакт получен, но номер из него не прочитался. Можно отправить ещё раз.",
+      );
+      return;
+    }
+    await rememberUser(from);
     const image = message.body.attachments?.find((item) => item.type === "image");
     if (image && image.type === "image") {
       try {

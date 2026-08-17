@@ -125,3 +125,16 @@ model AdminSession {
   token     String   @unique
   expiresAt DateTime
 }
+
+model MaxBotUser {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  maxUserId  String   @unique
+  name       String
+  username   String?
+  phone      String?
+  startedAt  DateTime
+  lastSeenAt DateTime
+
+  @@index([lastSeenAt])
+}
