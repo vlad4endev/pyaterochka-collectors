@@ -91,12 +91,6 @@ export function createBot(token: string): Bot {
   bot.command("start", async (ctx) => {
     await sendGreeting(ctx, true);
   });
-  bot.command("help", async (ctx) => {
-    await sendGreeting(ctx);
-  });
-  bot.command("app", async (ctx) => {
-    await sendGreeting(ctx);
-  });
   bot.command("bind", async (ctx) => {
     await bindCurrentChat(ctx);
   });
@@ -212,12 +206,11 @@ async function restartBotInner(): Promise<void> {
   const bot = createBot(token);
   currentBot = bot;
   try {
-    await bot.api.setMyCommands([
-      { command: "start", description: "Приветствие и приложение" },
-      { command: "app", description: "Открыть мини-приложение" },
-      { command: "help", description: "Как пользоваться" },
-      { command: "bind", description: "Привязать группу к админке" },
-    ]);
+    try {
+      await bot.api.deleteMyCommands();
+    } catch (err) {
+      console.error("Failed to clear Telegram bot commands", err);
+    }
     const url = getMiniAppUrl();
     if (url) {
       await bot.api.setChatMenuButton({

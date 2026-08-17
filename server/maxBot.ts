@@ -121,12 +121,6 @@ export function createMaxBot(token: string): Bot {
   bot.command("start", async (ctx) => {
     await sendGreeting(ctx);
   });
-  bot.command("help", async (ctx) => {
-    await sendGreeting(ctx);
-  });
-  bot.command("app", async (ctx) => {
-    await sendGreeting(ctx);
-  });
   bot.command("bind", async (ctx) => {
     await bindCurrentChat(ctx);
   });
@@ -244,12 +238,11 @@ async function restartMaxBotInner(): Promise<void> {
   const bot = createMaxBot(token);
   currentBot = bot;
   try {
-    await bot.api.setMyCommands([
-      { name: "start", description: "Приветствие и приложение" },
-      { name: "app", description: "Открыть мини-приложение" },
-      { name: "help", description: "Как пользоваться" },
-      { name: "bind", description: "Привязать группу к админке" },
-    ]);
+    try {
+      await bot.api.setMyCommands([]);
+    } catch (err) {
+      console.error("Failed to clear MAX bot commands", err);
+    }
     const me = await bot.api.getMyInfo();
     const username = me.username?.replace(/^@/, "") || null;
     patchMaxRuntime({
