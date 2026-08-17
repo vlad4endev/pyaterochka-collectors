@@ -874,6 +874,9 @@ code {
   color: #2f4f8f;
   margin-top: 2px;
 }
+tr.hist-editing td {
+  background: var(--ok-bg);
+}
 
 .overlay {
   position: fixed;

@@ -47,11 +47,13 @@ import {
   assertDateFreeForSubmitter,
   createCollectorCreditEntry,
   createCollectorManualEntry,
+  deletePeriodEntry,
   getMiniHome,
   requireActiveCollector,
   skipCollectorDayInPeriod,
   skipOwnScheduledDay,
   submitCollectorReport,
+  updatePeriodEntry,
   type MiniAppPlatform,
 } from "./lib/miniapp";
 import { restartBot } from "./bot";
@@ -430,6 +432,23 @@ authed.post("/entries/skip", async (c) => {
     body.date ?? "",
   );
   return c.json(id);
+});
+
+authed.patch("/entries/:id", async (c) => {
+  const body = await c.req.json<{
+    collectorId?: string;
+    creditedByCollectorId?: string | null;
+    date?: string;
+    kg?: number;
+    note?: string | null;
+  }>();
+  await updatePeriodEntry(db, c.req.param("id"), body);
+  return c.json(null);
+});
+
+authed.delete("/entries/:id", async (c) => {
+  await deletePeriodEntry(db, c.req.param("id"));
+  return c.json(null);
 });
 
 authed.post("/entries/credit", async (c) => {

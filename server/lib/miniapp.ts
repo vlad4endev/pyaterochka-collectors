@@ -7,18 +7,21 @@ import {
 } from "./dates";
 import {
   assertDate,
+  assertDateInPeriod as requireDateInPeriod,
   assertPositiveKg,
   getOpenPeriod,
   getSettings,
   isPeriodEditable,
   parseKgInput,
   requireCollector,
+  requireCollectorUnpaid,
   requireOpenPeriod,
   requireUnsettledPeriod,
   KG_RATE_RUB,
   entryPayeeId,
 } from "./domain";
 import { HttpError } from "./errors";
+import { syncUnpaidCollectorPayment } from "./payments";
 
 export type MiniEntry = {
   _id: string;
@@ -154,12 +157,14 @@ export async function assertDateFreeForSubmitter(
   periodId: string,
   date: string,
   submitterId: string,
+  excludeEntryId?: string,
 ): Promise<void> {
   const existing = await db.entry.findMany({
     where: {
       periodId,
       date,
       status: { in: ["pending", "confirmed"] },
+      ...(excludeEntryId ? { id: { not: excludeEntryId } } : {}),
     },
     take: 50,
   });
@@ -541,6 +546,118 @@ export async function skipCollectorDayInPeriod(
   const period = await requireUnsettledPeriod(db, periodId);
   const collector = await requireCollector(db, collectorId);
   return await skipCollectorDay(db, period, collector, date);
+}
+
+export async function updatePeriodEntry(
+  db: PrismaClient,
+  entryId: string,
+  patch: {
+    collectorId?: string;
+    creditedByCollectorId?: string | null;
+    date?: string;
+    kg?: number;
+    note?: string | null;
+  },
+): Promise<void> {
+  const entry = await db.entry.findUnique({ where: { id: entryId } });
+  if (!entry) {
+    throw new HttpError("Entry not found", 404);
+  }
+  if (entry.status !== "confirmed" && entry.status !== "skipped") {
+    throw new HttpError("Entry cannot be edited");
+  }
+  const period = await requireUnsettledPeriod(db, entry.periodId);
+  const oldPayeeId = entryPayeeId(entry);
+  if (entry.status === "confirmed") {
+    await requireCollectorUnpaid(db, entry.periodId, oldPayeeId);
+  }
+
+  const collectorId = patch.collectorId ?? entry.collectorId;
+  await requireCollector(db, collectorId);
+
+  let creditedByCollectorId =
+    patch.creditedByCollectorId === undefined
+      ? entry.creditedByCollectorId
+      : patch.creditedByCollectorId;
+  if (creditedByCollectorId === collectorId) {
+    creditedByCollectorId = null;
+  }
+  if (creditedByCollectorId) {
+    await requireCollector(db, creditedByCollectorId);
+  }
+
+  const date = requireDateInPeriod(patch.date ?? entry.date, period.startDate, period.endDate);
+  const nextPayeeId = creditedByCollectorId ?? collectorId;
+  if (nextPayeeId !== oldPayeeId) {
+    await requireCollectorUnpaid(db, entry.periodId, nextPayeeId);
+  }
+
+  let kg = entry.kg;
+  let status = entry.status;
+  let confirmedAt = entry.confirmedAt;
+  if (patch.kg !== undefined) {
+    const parsed = parseKgInput(patch.kg);
+    if (parsed === undefined) {
+      throw new HttpError("kg must be greater than 0");
+    }
+    kg = assertPositiveKg(parsed);
+    status = "confirmed";
+    if (entry.status === "skipped") {
+      confirmedAt = new Date();
+    }
+  } else if (entry.status === "confirmed" && (entry.kg === null || entry.kg <= 0)) {
+    throw new HttpError("kg must be greater than 0");
+  }
+
+  if (status === "confirmed") {
+    await assertDateFreeForSubmitter(db, period.id, date, nextPayeeId, entry.id);
+  }
+
+  const note =
+    patch.note === undefined
+      ? entry.note
+      : patch.note === null || patch.note.trim().length === 0
+        ? null
+        : patch.note.trim();
+
+  await db.entry.update({
+    where: { id: entry.id },
+    data: {
+      collectorId,
+      creditedByCollectorId,
+      date,
+      kg,
+      status,
+      confirmedAt,
+      note,
+    },
+  });
+
+  if (oldPayeeId !== nextPayeeId || entry.status === "confirmed" || status === "confirmed") {
+    await syncUnpaidCollectorPayment(db, period.id, oldPayeeId);
+    if (nextPayeeId !== oldPayeeId) {
+      await syncUnpaidCollectorPayment(db, period.id, nextPayeeId);
+    }
+  }
+}
+
+export async function deletePeriodEntry(db: PrismaClient, entryId: string): Promise<void> {
+  const entry = await db.entry.findUnique({ where: { id: entryId } });
+  if (!entry) {
+    throw new HttpError("Entry not found", 404);
+  }
+  if (entry.status !== "confirmed" && entry.status !== "skipped") {
+    throw new HttpError("Entry cannot be edited");
+  }
+  await requireUnsettledPeriod(db, entry.periodId);
+  const payeeId = entryPayeeId(entry);
+  if (entry.status === "confirmed") {
+    await requireCollectorUnpaid(db, entry.periodId, payeeId);
+  }
+  await db.entry.delete({ where: { id: entry.id } });
+  if (entry.status === "confirmed") {
+    await syncUnpaidCollectorPayment(db, entry.periodId, payeeId);
+  }
 }
 
 export async function createInvoiceFromPhoto(

@@ -347,6 +347,19 @@ export const api = {
         note?: string;
       },
     ) => apiRequest<string>("/entries/credit", { method: "POST", token, body }),
+    update: (
+      token: string,
+      entryId: string,
+      body: {
+        collectorId?: string;
+        creditedByCollectorId?: string | null;
+        date?: string;
+        kg?: number;
+        note?: string | null;
+      },
+    ) => apiRequest<null>(`/entries/${entryId}`, { method: "PATCH", token, body }),
+    remove: (token: string, entryId: string) =>
+      apiRequest<null>(`/entries/${entryId}`, { method: "DELETE", token }),
   },
   history: (token: string, periodId: string) =>
     apiRequest<HistoryRow[]>(`/history?periodId=${encodeURIComponent(periodId)}`, { token }),

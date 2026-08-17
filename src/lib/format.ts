@@ -186,6 +186,7 @@ const ERROR_RU: Record<string, string> = {
   "Entry already has kilograms": "За этот день уже есть килограммы",
   "This day was already submitted by another collector":
     "За этот день уже внёс другой участник",
+  "Entry cannot be edited": "Эту запись уже нельзя менять — она на проверке или отклонена",
   "creditedByCollectorId must be a different collector": "Засчитать можно только за другого участника",
   "kg must be greater than 0": "Укажите килограммы больше нуля",
   "storeTotalRub must be greater than 0": "Укажите сумму из счёта магазина",
