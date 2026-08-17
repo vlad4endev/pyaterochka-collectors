@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Period } from "../lib/api";
 import { errorMessage, periodLabel } from "../lib/format";
-import { useApiQuery } from "../lib/useApi";
 import { useSession } from "../session";
 
 type Props = {
   selectedId: string | null;
+  periods: Period[];
   onSelect: (id: string) => void;
 };
 
@@ -19,13 +19,8 @@ function kindLabel(period: Period): string | null {
   return null;
 }
 
-export function PeriodPicker({ selectedId, onSelect }: Props) {
+export function PeriodPicker({ selectedId, periods, onSelect }: Props) {
   const { token, refreshData } = useSession();
-  const { data: periods } = useApiQuery(
-    Boolean(token),
-    () => api.periods.list(token ?? ""),
-    [token],
-  );
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,7 +29,7 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
   const [storeTotalRub, setStoreTotalRub] = useState("8000");
   const [rate, setRate] = useState("20");
 
-  const selected = periods?.find((period) => period._id === selectedId);
+  const selected = periods.find((period) => period._id === selectedId);
   const label = selected
     ? periodLabel(selected.startDate, selected.endDate)
     : "Нет периода";
@@ -120,9 +115,7 @@ export function PeriodPicker({ selectedId, onSelect }: Props) {
                 Готово
               </button>
             </div>
-            {periods === undefined ? (
-              <div className="loading">Загрузка…</div>
-            ) : periods.length === 0 ? (
+            {periods.length === 0 ? (
               <div className="empty">Периодов ещё нет</div>
             ) : (
               <div className="period-list">

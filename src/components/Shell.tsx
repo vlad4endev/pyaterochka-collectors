@@ -11,6 +11,7 @@ import {
   IconTelegram,
   IconUsers,
 } from "./Icons";
+import type { Period } from "../lib/api";
 
 export type SectionId =
   | "home"
@@ -42,6 +43,7 @@ type Props = {
   sidebarOpen: boolean;
   onSidebar: (open: boolean) => void;
   periodId: string | null;
+  periods: Period[];
   onPeriod: (id: string) => void;
   onLogout: () => void;
   children: ReactNode;
@@ -74,6 +76,7 @@ export function Shell({
   sidebarOpen,
   onSidebar,
   periodId,
+  periods,
   onPeriod,
   onLogout,
   children,
@@ -143,7 +146,7 @@ export function Shell({
       <div className="workspace">
         <div className="topbar">
           {showPeriod ? (
-            <PeriodPicker selectedId={periodId} onSelect={onPeriod} />
+            <PeriodPicker selectedId={periodId} periods={periods} onSelect={onPeriod} />
           ) : (
             <p className="topbar-note">Общие настройки — не привязаны к неделе</p>
           )}

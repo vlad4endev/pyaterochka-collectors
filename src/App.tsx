@@ -42,6 +42,7 @@ function AuthedApp() {
     Boolean(token),
     () => api.me(token ?? ""),
     [token],
+    { refreshOnEpoch: false },
   );
   const { data: periods } = useApiQuery(
     Boolean(token),
@@ -93,6 +94,7 @@ function AuthedApp() {
       sidebarOpen={sidebarOpen}
       onSidebar={setSidebarOpen}
       periodId={periodId}
+      periods={periods}
       onPeriod={setPeriodId}
       onLogout={() => void onLogout()}
     >

@@ -6,12 +6,14 @@ export function useApiQuery<T>(
   enabled: boolean,
   loader: () => Promise<T>,
   deps: ReadonlyArray<unknown>,
+  options?: { refreshOnEpoch?: boolean },
 ) {
   const { setToken, dataEpoch } = useSession();
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<Error | null>(null);
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((value) => value + 1), []);
+  const epoch = options?.refreshOnEpoch === false ? 0 : dataEpoch;
 
   useEffect(() => {
     if (!enabled) {
@@ -41,7 +43,7 @@ export function useApiQuery<T>(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, nonce, dataEpoch, ...deps]);
+  }, [enabled, nonce, epoch, ...deps]);
 
   return { data, error, reload };
 }

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { api, type HistoryRow } from "../lib/api";
 import { dayName, errorMessage, fmtShort, parseKg } from "../lib/format";
@@ -18,17 +18,6 @@ function payeeId(row: HistoryRow): string {
 
 export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
   const { token, refreshData } = useSession();
-  const { data: rows } = useApiQuery(
-    Boolean(token),
-    () => api.history(token ?? "", periodId),
-    [token, periodId],
-  );
-  const { data: collectors } = useApiQuery(
-    Boolean(token),
-    () => api.collectors.list(token ?? ""),
-    [token],
-  );
-
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [collectorId, setCollectorId] = useState("");
@@ -38,6 +27,16 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { data: rows } = useApiQuery(
+    Boolean(token),
+    () => api.history(token ?? "", periodId),
+    [token, periodId],
+  );
+  const { data: collectors } = useApiQuery(
+    Boolean(token) && showForm,
+    () => api.collectors.list(token ?? ""),
+    [token],
+  );
 
   function resetForm() {
     setEditingId(null);
@@ -158,13 +157,26 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
 
   const editing = Boolean(editingId);
 
+  useEffect(() => {
+    if (!showForm) {
+      return;
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) {
+        resetForm();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showForm, busy]);
+
   return (
     <>
       <PageHeader
         title="История"
         sub="Подтверждённые кг недели. Если расчёт не сходится — поправьте запись или добавьте недостающие."
         actions={
-          canEdit && !showForm ? (
+          canEdit ? (
             <button type="button" className="btn-primary" onClick={openAdd}>
               Запись вручную
             </button>
@@ -251,93 +263,113 @@ export function HistoryPage({ periodId, canEdit, startDate, endDate }: Props) {
       </div>
 
       {canEdit && showForm ? (
-        <form className="card" onSubmit={(event) => void onSave(event)}>
-          <h2>{editing ? "Изменить запись" : "Добавить запись вручную"}</h2>
-          <div className="h2-sub">
-            {editing
-              ? "Кг сразу попадают в расчёт недели, пока участник ещё не оплатил."
-              : "Если кто-то забрал чужой день — кг и сумма идут ему, а в календаре закрывается день того, за кого взяли. Можно править и прошлые недели, пока по ним не закрыта оплата."}
-          </div>
-          <div className="grid2">
-            <div className="field">
-              <label htmlFor="hWho">Участник</label>
-              <select
-                id="hWho"
-                value={collectorId}
-                onChange={(event) => setCollectorId(event.target.value)}
-                required
-              >
-                <option value="">выберите</option>
-                {collectors?.map((collector) => (
-                  <option value={collector._id} key={collector._id}>
-                    {collector.name}
-                  </option>
-                ))}
-              </select>
+        <div
+          className="overlay center"
+          onClick={() => {
+            if (!busy) {
+              resetForm();
+            }
+          }}
+        >
+          <form
+            className="modal"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => void onSave(event)}
+          >
+            <div className="modal-head">
+              <div>
+                <h2>{editing ? "Изменить запись" : "Добавить запись вручную"}</h2>
+                <p className="h2-sub">
+                  {editing
+                    ? "Кг сразу попадают в расчёт недели, пока участник ещё не оплатил."
+                    : "Если кто-то забрал чужой день — кг и сумма идут ему, а в календаре закрывается день того, за кого взяли."}
+                </p>
+              </div>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={resetForm}>
+                Закрыть
+              </button>
             </div>
-            <div className="field">
-              <label htmlFor="hDate">Дата</label>
-              <input
-                id="hDate"
-                type="date"
-                min={startDate}
-                max={endDate}
-                value={date}
-                onChange={(event) => setDate(event.target.value)}
-                required
-              />
-            </div>
-          </div>
-          <div className="grid2">
-            <div className="field">
-              <label htmlFor="hKg">Кг</label>
-              <input
-                id="hKg"
-                type="number"
-                min="0.1"
-                step="0.1"
-                value={kg}
-                onChange={(event) => setKg(event.target.value)}
-                required={!editing || rows?.find((row) => row._id === editingId)?.status !== "skipped"}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="hCredit">За кого взял</label>
-              <select
-                id="hCredit"
-                value={creditedBy}
-                onChange={(event) => setCreditedBy(event.target.value)}
-              >
-                <option value="">нет — свой день</option>
-                {collectors
-                  ?.filter((collector) => collector._id !== collectorId)
-                  .map((collector) => (
+            <div className="grid2">
+              <div className="field">
+                <label htmlFor="hWho">Участник</label>
+                <select
+                  id="hWho"
+                  value={collectorId}
+                  onChange={(event) => setCollectorId(event.target.value)}
+                  required
+                >
+                  <option value="">выберите</option>
+                  {collectors?.map((collector) => (
                     <option value={collector._id} key={collector._id}>
                       {collector.name}
                     </option>
                   ))}
-              </select>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="hDate">Дата</label>
+                <input
+                  id="hDate"
+                  type="date"
+                  min={startDate}
+                  max={endDate}
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                  required
+                />
+              </div>
             </div>
-          </div>
-          <div className="field">
-            <label htmlFor="hNote">Заметка</label>
-            <input
-              id="hNote"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="необязательно"
-            />
-          </div>
-          {error ? <div className="err">{error}</div> : null}
-          <div className="msg-actions">
-            <button className="btn-primary" disabled={busy}>
-              {editing ? "Сохранить" : "Добавить"}
-            </button>
-            <button type="button" className="btn-ghost" onClick={resetForm}>
-              Отмена
-            </button>
-          </div>
-        </form>
+            <div className="grid2">
+              <div className="field">
+                <label htmlFor="hKg">Кг</label>
+                <input
+                  id="hKg"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={kg}
+                  onChange={(event) => setKg(event.target.value)}
+                  required={!editing || rows?.find((row) => row._id === editingId)?.status !== "skipped"}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="hCredit">За кого взял</label>
+                <select
+                  id="hCredit"
+                  value={creditedBy}
+                  onChange={(event) => setCreditedBy(event.target.value)}
+                >
+                  <option value="">нет — свой день</option>
+                  {collectors
+                    ?.filter((collector) => collector._id !== collectorId)
+                    .map((collector) => (
+                      <option value={collector._id} key={collector._id}>
+                        {collector.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="hNote">Заметка</label>
+              <input
+                id="hNote"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="необязательно"
+              />
+            </div>
+            {error ? <div className="err">{error}</div> : null}
+            <div className="msg-actions">
+              <button className="btn-primary" disabled={busy}>
+                {editing ? "Сохранить" : "Добавить"}
+              </button>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={resetForm}>
+                Отмена
+              </button>
+            </div>
+          </form>
+        </div>
       ) : error && !showForm ? (
         <div className="err" style={{ marginTop: 12 }}>
           {error}

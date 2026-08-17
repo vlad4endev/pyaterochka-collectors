@@ -173,33 +173,25 @@ async function listMissingAndPending(
       });
     }
   }
-  const pendingEntries = await db.entry.findMany({
-    where: { periodId, status: "pending" },
-    take: 200,
-  });
-  const pendingCollectorIds = [...new Set(pendingEntries.map((entry) => entry.collectorId))];
-  const pendingCollectors =
-    pendingCollectorIds.length > 0
-      ? await db.collector.findMany({
-          where: { id: { in: pendingCollectorIds } },
-          take: 200,
-        })
-      : [];
-  const pendingNameById = new Map(pendingCollectors.map((row) => [row.id, row.name]));
   const pendingMap = new Map<string, MissingReport>();
-  for (const entry of pendingEntries) {
-    const current = pendingMap.get(entry.collectorId);
-    if (current) {
-      if (!current.dates.includes(entry.date)) {
-        current.dates.push(entry.date);
+  for (const day of dashboard.calendar) {
+    for (const person of day.people) {
+      if (person.status !== "pending") {
+        continue;
       }
-      continue;
+      const current = pendingMap.get(person.collectorId);
+      if (current) {
+        if (!current.dates.includes(day.date)) {
+          current.dates.push(day.date);
+        }
+        continue;
+      }
+      pendingMap.set(person.collectorId, {
+        collectorId: person.collectorId,
+        collectorName: person.name,
+        dates: [day.date],
+      });
     }
-    pendingMap.set(entry.collectorId, {
-      collectorId: entry.collectorId,
-      collectorName: pendingNameById.get(entry.collectorId) ?? "Unknown",
-      dates: [entry.date],
-    });
   }
   const byName = (left: MissingReport, right: MissingReport) =>
     left.collectorName.localeCompare(right.collectorName, "ru");

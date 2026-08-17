@@ -889,6 +889,10 @@ tr.hist-editing td {
   padding: 64px 16px 16px;
   backdrop-filter: blur(4px);
 }
+.overlay.center {
+  align-items: center;
+  padding: 24px 16px;
+}
 .modal {
   background: var(--paper);
   border-radius: 24px;

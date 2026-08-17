@@ -38,9 +38,27 @@ function PendingPhoto({
   hasPhoto: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!hasPhoto) {
+    if (!hasPhoto || !root) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+        }
+      },
+      { rootMargin: "80px" },
+    );
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [hasPhoto, root]);
+
+  useEffect(() => {
+    if (!hasPhoto || !visible) {
       return;
     }
     let objectUrl: string | undefined;
@@ -65,13 +83,13 @@ function PendingPhoto({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [entryId, token, hasPhoto]);
+  }, [entryId, token, hasPhoto, visible]);
 
   if (url) {
     return <img className="photo-ph photo-thumb" src={url} alt="" />;
   }
   return (
-    <div className="photo-ph">
+    <div className="photo-ph" ref={setRoot}>
       <IconPhoto />
     </div>
   );
@@ -221,9 +239,9 @@ export function HomePage({ periodId, onPeriod }: Props) {
     [token],
   );
   const { data: lastWeekPreview } = useApiQuery(
-    Boolean(token),
+    Boolean(token) && loadedSettlement === null,
     () => api.payments.preview(token ?? ""),
-    [token],
+    [token, loadedSettlement],
   );
   const { data: summary } = useApiQuery(
     Boolean(token) && showMessage && !settlement?.text,

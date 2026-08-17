@@ -296,22 +296,17 @@ authed.get("/entries/pending", async (c) => {
   }
   const rows = await db.entry.findMany({
     where: { periodId, status: "pending" },
+    include: { collector: true, creditedBy: true },
     take: 200,
     orderBy: { date: "asc" },
   });
-  const items = [];
-  for (const row of rows) {
-    const collector = await db.collector.findUnique({ where: { id: row.collectorId } });
-    const creditedBy = row.creditedByCollectorId
-      ? await db.collector.findUnique({ where: { id: row.creditedByCollectorId } })
-      : null;
-    items.push({
-      ...pendingDto(row, collector?.name ?? "Unknown"),
-      creditedByName: creditedBy?.name,
+  return c.json(
+    rows.map((row) => ({
+      ...pendingDto(row, row.collector.name),
+      creditedByName: row.creditedBy?.name,
       hasPhoto: Boolean(row.telegramFileId),
-    });
-  }
-  return c.json(items);
+    })),
+  );
 });
 
 authed.get("/entries/:id/photo", async (c) => {
@@ -321,15 +316,26 @@ authed.get("/entries/:id/photo", async (c) => {
   }
   let photoRef = entry.telegramFileId;
   if (!isUploadPhotoRef(photoRef)) {
-    try {
-      photoRef = await persistInvoicePhotoRef(photoRef);
-      await db.entry.update({
-        where: { id: entry.id },
-        data: { telegramFileId: photoRef },
+    const persist = persistInvoicePhotoRef(photoRef)
+      .then(async (saved) => {
+        await db.entry.update({
+          where: { id: entry.id },
+          data: { telegramFileId: saved },
+        });
+        return saved;
+      })
+      .catch((err) => {
+        console.error("Failed to persist Telegram invoice photo", err);
+        return null;
       });
-    } catch (err) {
-      console.error("Failed to persist Telegram invoice photo", err);
+    const saved = await Promise.race([
+      persist,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+    if (!saved) {
+      throw new HttpError("Photo not found", 404);
     }
+    photoRef = saved;
   }
   const photo = await loadInvoicePhoto(photoRef);
   return c.body(new Uint8Array(photo.bytes), 200, {
@@ -499,32 +505,26 @@ authed.get("/history", async (c) => {
   }
   const rows = await db.entry.findMany({
     where: { periodId, status: { in: ["confirmed", "skipped"] } },
+    include: { collector: true, creditedBy: true },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     take: 500,
   });
-  const items = [];
-  for (const row of rows) {
-    if (row.status === "confirmed" && row.kg === null) {
-      continue;
-    }
-    const collector = await db.collector.findUnique({ where: { id: row.collectorId } });
-    const creditedBy = row.creditedByCollectorId
-      ? await db.collector.findUnique({ where: { id: row.creditedByCollectorId } })
-      : null;
-    items.push({
-      _id: row.id,
-      date: row.date,
-      kg: row.kg,
-      source: row.source,
-      status: row.status,
-      collectorId: row.collectorId,
-      collectorName: collector?.name ?? "Unknown",
-      creditedByCollectorId: row.creditedByCollectorId ?? undefined,
-      creditedByName: creditedBy?.name,
-      note: row.note ?? undefined,
-    });
-  }
-  items.sort((a, b) => b.date.localeCompare(a.date));
-  return c.json(items);
+  return c.json(
+    rows
+      .filter((row) => row.status !== "confirmed" || row.kg !== null)
+      .map((row) => ({
+        _id: row.id,
+        date: row.date,
+        kg: row.kg,
+        source: row.source,
+        status: row.status,
+        collectorId: row.collectorId,
+        collectorName: row.collector.name,
+        creditedByCollectorId: row.creditedByCollectorId ?? undefined,
+        creditedByName: row.creditedBy?.name,
+        note: row.note ?? undefined,
+      })),
+  );
 });
 
 authed.get("/payments", async (c) => {
