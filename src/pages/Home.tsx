@@ -583,7 +583,7 @@ export function HomePage({ periodId, onPeriod }: Props) {
             <h2>Накладные</h2>
             <span className={`badge ${pendingCount ? "warn" : "ok"}`}>{pendingCount}</span>
           </div>
-          <p className="h2-sub">Фото от сборщиков. Подтверди кг — тогда они попадут в сумму.</p>
+          <p className="h2-sub">Фото и суммарные кг от сборщиков. Проверь число по ведомости и подтверди.</p>
           {pending === undefined ? (
             <div className="loading">Загрузка…</div>
           ) : pending.length === 0 ? (

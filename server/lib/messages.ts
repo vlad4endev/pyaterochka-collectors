@@ -30,6 +30,16 @@ export const MINI_APP_BUTTON = "ВНЕСТИ";
 export const ASK_PHONE_TEXT =
   "Нажми «Поделиться номером» — так мы узнаем тебя в списке участников и свяжем Telegram с MAX.";
 
+export const ASK_TOTAL_KG_TEXT =
+  "Напиши суммарные кг по всем категориям ведомости — одно число, например 12,4";
+
+export const NEED_NUMBER_KG_TEXT =
+  "Нужно одно число: сложи все категории из ведомости и напиши итоговые кг, например 12,4";
+
+export function formatAcceptedReport(date: string, kg: number): string {
+  return `Приняли ${formatKgLabel(kg)} кг за ${fmtShort(date)} — суммарно по всем категориям ведомости. На проверке.`;
+}
+
 export function buildGreetingText(args: {
   helloName: string;
   hasApp: boolean;
@@ -45,18 +55,21 @@ export function buildGreetingText(args: {
   if (args.hasApp) {
     lines.push(
       "",
-      `Нажми «${MINI_APP_BUTTON}» — откроется приложение: сумма за период, кг и фото ведомости.`,
+      `Нажми «${MINI_APP_BUTTON}» — внеси суммарные кг по всем категориям ведомости и фото.`,
     );
   }
-  if (args.status === "active" && !args.hasApp) {
-    lines.push("", "Пришли фото ведомости сюда в чат — оно уйдёт на проверку.");
-  } else if (args.status === "unknown") {
+  if (args.status === "unknown") {
     lines.push(
       "",
       `Если тебя ещё нет в списке, покажи организатору свой ${args.idLabel}: ${args.id}`,
     );
-  } else {
+  } else if (args.status === "inactive") {
     lines.push("", "Ты скрыт в списке участников — напиши организатору.");
+  } else if (!args.hasApp) {
+    lines.push(
+      "",
+      "Пришли фото ведомости и напиши суммарные кг по всем категориям одним числом.",
+    );
   }
   return lines.join("\n");
 }
@@ -113,8 +126,8 @@ function formatReportReminder(name: string, dates: string[]): string {
       ? `${name}, по графику нет отчёта за ${fmtShort(first)}.`
       : `${name}, по графику нет отчётов за ${dates.length} ${daysWord(dates.length)}:`;
   const action = getMiniAppUrl()
-    ? `Нажми «${MINI_APP_BUTTON}»: внеси кг и фото ведомости или отметь «Не брал», если не забирал.`
-    : "Пришли фото ведомости сюда в чат. Если не забирал — напиши организатору.";
+    ? `Нажми «${MINI_APP_BUTTON}»: внеси суммарные кг по всем категориям ведомости и фото или отметь «Не брал», если не забирал.`
+    : "Пришли фото ведомости и напиши суммарные кг по всем категориям одним числом. Если не забирал — напиши организатору.";
   return [heading, ...(dates.length > 1 ? ["", listed] : []), "", action].join("\n");
 }
 

@@ -193,7 +193,7 @@ export function MiniAppPage() {
   );
   const forPerson = whoOptions.find((person) => person._id === forId) ?? whoOptions[0];
   const kgValue = parseKg(kg);
-  const canSubmit = (kgValue !== undefined || photo !== null) && !takenByOther;
+  const canSubmit = kgValue !== undefined && !takenByOther;
   const amountPreview =
     home?.period && kgValue !== undefined ? kgValue * home.period.rate : null;
   const todaySelected = Boolean(home && date === home.today.date);
@@ -297,15 +297,13 @@ export function MiniAppPage() {
     if (busy) {
       return "Отправляем";
     }
-    if (showWho && forPerson) {
-      return kgValue !== undefined
-        ? `Отправить ${formatKg(kgValue)} кг за ${firstName(forPerson.name)}`
-        : `Отправить фото за ${firstName(forPerson.name)}`;
+    if (showWho && forPerson && kgValue !== undefined) {
+      return `Отправить ${formatKg(kgValue)} кг за ${firstName(forPerson.name)}`;
     }
     if (kgValue !== undefined) {
       return `Отправить ${formatKg(kgValue)} кг`;
     }
-    return "Отправить фото";
+    return "Укажи суммарные кг";
   }
 
   if (initData === null || (home === undefined && !error && initData)) {
@@ -325,7 +323,9 @@ export function MiniAppPage() {
           <BrandLogo className="ma-logo" size={48} />
           <div className="ma-kicker">Пятёрка на бульваре</div>
           <h1 className="ma-title">Открой из бота</h1>
-          <p className="ma-lead">Нажми «ВНЕСТИ» в Telegram или MAX — подтянутся кг и сумма.</p>
+          <p className="ma-lead">
+            Нажми «ВНЕСТИ» в Telegram или MAX — укажи суммарные кг по всем категориям ведомости.
+          </p>
         </div>
       </div>
     );
@@ -477,6 +477,9 @@ export function MiniAppPage() {
               <h2>Ведомость и кг</h2>
             </div>
           </div>
+          <p className="ma-lead" style={{ margin: "0 0 14px" }}>
+            Килограммы — сумма по всем категориям ведомости, одним числом.
+          </p>
 
           <div className="ma-context">
             <span>
@@ -548,7 +551,7 @@ export function MiniAppPage() {
           ) : null}
 
           <label className="ma-kg-block" htmlFor="maKg">
-            <span className="ma-kicker">Килограммы</span>
+            <span className="ma-kicker">Суммарно по всем категориям</span>
             <div className="ma-kg-line">
               <input
                 id="maKg"
@@ -567,7 +570,7 @@ export function MiniAppPage() {
             {amountPreview !== null ? (
               <span className="ma-plus">+ {formatMoney(amountPreview)} ₽ к сумме</span>
             ) : (
-              <span className="ma-plus dim">Можно только фото — кг проставит организатор</span>
+              <span className="ma-plus dim">Сложи все строки ведомости в одно число</span>
             )}
           </label>
 

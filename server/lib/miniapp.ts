@@ -15,7 +15,6 @@ import {
   parseKgInput,
   requireCollector,
   requireCollectorUnpaid,
-  requireOpenPeriod,
   requireUnsettledPeriod,
   entryPayeeId,
 } from "./domain";
@@ -454,10 +453,10 @@ export async function submitCollectorReport(
 ): Promise<string> {
   const { period, date } = await periodForCollectorDate(db, body.date);
   const parsedKg = parseKgInput(body.kg);
-  const kg = parsedKg === undefined ? undefined : assertPositiveKg(parsedKg);
-  if (!kg && !body.photoRef) {
-    throw new HttpError("Add kilograms or a photo");
+  if (parsedKg === undefined) {
+    throw new HttpError("kg must be greater than 0");
   }
+  const kg = assertPositiveKg(parsedKg);
 
   const forCollectorId = body.forCollectorId?.trim() || undefined;
   if (forCollectorId && forCollectorId !== collector.id) {
@@ -657,36 +656,4 @@ export async function deletePeriodEntry(db: PrismaClient, entryId: string): Prom
   if (entry.status === "confirmed") {
     await syncUnpaidCollectorPayment(db, entry.periodId, payeeId);
   }
-}
-
-export async function createInvoiceFromPhoto(
-  db: PrismaClient,
-  userId: string,
-  fileId: string,
-  nowMs: number,
-  platform: MiniAppPlatform = "telegram",
-): Promise<{ collectorName: string; date: string }> {
-  const collector = requireActiveCollector(await findCollectorByPlatform(db, platform, userId));
-  const period = await getOpenPeriod(db);
-  if (!period) {
-    throw new HttpError("Period not found", 404);
-  }
-  await requireOpenPeriod(db, period.id);
-  const date = clockInTimeZone(STORE_TIME_ZONE, nowMs).date;
-  assertDateInPeriod(date, period.startDate, period.endDate);
-  await db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Period" WHERE id = ${period.id} FOR UPDATE`;
-    await assertDateFreeForSubmitter(tx, period.id, date, collector.id);
-    await tx.entry.create({
-      data: {
-        periodId: period.id,
-        collectorId: collector.id,
-        date,
-        source: "invoice",
-        status: "pending",
-        telegramFileId: fileId,
-      },
-    });
-  });
-  return { collectorName: collector.name, date };
 }

@@ -1,14 +1,16 @@
 import { Bot, InlineKeyboard, Keyboard, type Context } from "grammy";
 import { db } from "./db";
 import { patchDefaultSettings } from "./lib/domain";
-import { HttpError } from "./lib/errors";
+import {
+  botIntakeReply,
+  collectorSubmitErrorText,
+  intakeBotPhoto,
+  intakeBotText,
+} from "./lib/botIntake";
 import { persistTelegramPhoto } from "./lib/invoices";
 import { ASK_PHONE_TEXT, buildGreetingText, MINI_APP_BUTTON } from "./lib/messages";
 import { attachSharedPhone } from "./lib/identity";
-import {
-  createInvoiceFromPhoto,
-  findCollectorByTelegram,
-} from "./lib/miniapp";
+import { findCollectorByTelegram } from "./lib/miniapp";
 import {
   getMiniAppUrl,
   getTelegramProxyAgent,
@@ -117,59 +119,40 @@ async function bindCurrentChat(ctx: Context): Promise<void> {
   await ctx.reply(`Чат «${title}» привязан к админке сборщиков.`);
 }
 
-async function acceptPrivateInvoice(ctx: Context, fileId: string): Promise<void> {
+async function acceptPrivateInvoice(ctx: Context, fileId: string, caption?: string): Promise<void> {
   const from = ctx.from;
   if (!from) {
     return;
   }
   try {
     const photoRef = await persistTelegramPhoto(fileId);
-    const result = await createInvoiceFromPhoto(db, String(from.id), photoRef, Date.now());
+    const result = await intakeBotPhoto(db, {
+      platform: "telegram",
+      userId: String(from.id),
+      photoRef,
+      caption,
+    });
+    const text = botIntakeReply(result);
+    if (!text) {
+      return;
+    }
     const url = getMiniAppUrl();
-    const text = `Накладная за ${result.date.slice(8, 10)}.${result.date.slice(5, 7)} ушла на проверку. Открой приложение, чтобы видеть статус.`;
-    if (url) {
+    if (url && result.kind === "submitted") {
       await ctx.reply(text, {
         reply_markup: inlineAppButton(url),
       });
-    } else {
-      await ctx.reply(text);
+      return;
     }
+    await ctx.reply(text);
   } catch (err) {
-    const message = err instanceof HttpError ? err.message : "Не удалось принять фото";
-    if (message === "Not a collector") {
-      await ctx.reply(
-        `Тебя нет в списке участников. Покажи организатору свой Telegram ID: ${from.id}`,
-      );
-      return;
+    const message = collectorSubmitErrorText(err, {
+      id: String(from.id),
+      idLabel: "Telegram ID",
+    });
+    if (message.startsWith("Не удалось принять")) {
+      console.error(err);
     }
-    if (message === "Collector is inactive") {
-      await ctx.reply("Ты скрыт в списке участников — напиши организатору.");
-      return;
-    }
-    if (message === "Period not found" || message === "Period is closed") {
-      await ctx.reply("Сейчас нет открытого периода — подожди организатора.");
-      return;
-    }
-    if (message === "Date is outside the open period") {
-      await ctx.reply("Сегодняшняя дата не входит в текущий период.");
-      return;
-    }
-    if (message === "This day was already submitted by another collector") {
-      const name =
-        err instanceof HttpError &&
-        typeof err.details?.collectorName === "string" &&
-        err.details.collectorName.trim().length > 0
-          ? err.details.collectorName.trim()
-          : undefined;
-      await ctx.reply(
-        name
-          ? `За этот день уже внёс ${name}. Вторая сдача от другого участника не принимается.`
-          : "За этот день уже внёс другой участник.",
-      );
-      return;
-    }
-    console.error(err);
-    await ctx.reply("Не удалось принять фото. Попробуй ещё раз или открой приложение.");
+    await ctx.reply(message);
   }
 }
 
@@ -249,7 +232,7 @@ export function createBot(token: string): Bot {
     if (!photo || !from) {
       return;
     }
-    await acceptPrivateInvoice(ctx, photo.file_id);
+    await acceptPrivateInvoice(ctx, photo.file_id, ctx.message.caption);
   });
 
   bot.on("message:document", async (ctx) => {
@@ -268,7 +251,7 @@ export function createBot(token: string): Bot {
       await ctx.reply("Нужно фото ведомости — снимок с камеры или JPG/PNG из галереи.");
       return;
     }
-    await acceptPrivateInvoice(ctx, document.file_id);
+    await acceptPrivateInvoice(ctx, document.file_id, ctx.message.caption);
   });
 
   bot.on("message:text", async (ctx) => {
@@ -277,6 +260,37 @@ export function createBot(token: string): Bot {
     }
     const text = ctx.message.text;
     if (text.startsWith("/")) {
+      return;
+    }
+    const from = ctx.from;
+    if (!from) {
+      return;
+    }
+    try {
+      const result = await intakeBotText(db, {
+        platform: "telegram",
+        userId: String(from.id),
+        text,
+      });
+      const reply = botIntakeReply(result);
+      if (reply) {
+        const url = getMiniAppUrl();
+        if (url && result.kind === "submitted") {
+          await ctx.reply(reply, { reply_markup: inlineAppButton(url) });
+          return;
+        }
+        await ctx.reply(reply);
+        return;
+      }
+    } catch (err) {
+      const message = collectorSubmitErrorText(err, {
+        id: String(from.id),
+        idLabel: "Telegram ID",
+      });
+      if (message.startsWith("Не удалось принять")) {
+        console.error(err);
+      }
+      await ctx.reply(message);
       return;
     }
     await greetOrAskPhone(ctx);

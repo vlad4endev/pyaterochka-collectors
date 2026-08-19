@@ -2,10 +2,15 @@ import { Bot, Keyboard, MaxError, type Context } from "@maxhub/max-bot-api";
 import type { Attachment, Button } from "@maxhub/max-bot-api/types";
 import { db } from "./db";
 import { patchDefaultSettings } from "./lib/domain";
-import { HttpError } from "./lib/errors";
+import {
+  botIntakeReply,
+  collectorSubmitErrorText,
+  intakeBotPhoto,
+  intakeBotText,
+} from "./lib/botIntake";
 import { saveInvoicePhotoFromUrl } from "./lib/invoices";
 import { ASK_PHONE_TEXT, buildGreetingText, MINI_APP_BUTTON } from "./lib/messages";
-import { createInvoiceFromPhoto, findCollectorByMax } from "./lib/miniapp";
+import { findCollectorByMax } from "./lib/miniapp";
 import {
   getMaxBotUsername,
   getMiniAppUrl,
@@ -220,58 +225,68 @@ export function createMaxBot(token: string, apiBaseUrl: string): Bot {
     }
     await rememberUser(from);
     const imageUrl = invoiceImageUrl(message.body.attachments);
+    const text = message.body.text?.trim() ?? "";
     if (imageUrl) {
       try {
         const photoRef = await saveInvoicePhotoFromUrl(imageUrl);
-        const result = await createInvoiceFromPhoto(db, String(from.user_id), photoRef, Date.now(), "max");
-        const url = getMiniAppUrl();
-        const text = `Накладная за ${result.date.slice(8, 10)}.${result.date.slice(5, 7)} ушла на проверку. Открой приложение, чтобы видеть статус.`;
-        const keyboard = appKeyboard();
-        await ctx.reply(text, url && keyboard ? { attachments: [keyboard] } : undefined);
+        const result = await intakeBotPhoto(db, {
+          platform: "max",
+          userId: String(from.user_id),
+          photoRef,
+          caption: text,
+        });
+        const reply = botIntakeReply(result);
+        if (reply) {
+          const url = getMiniAppUrl();
+          const keyboard = appKeyboard();
+          await ctx.reply(
+            reply,
+            url && keyboard && result.kind === "submitted" ? { attachments: [keyboard] } : undefined,
+          );
+        }
       } catch (err) {
-        const messageText = err instanceof HttpError ? err.message : "Не удалось принять фото";
-        if (messageText === "Not a collector") {
-          await ctx.reply(
-            `Тебя нет в списке участников. Покажи организатору свой MAX ID: ${from.user_id}`,
-          );
-          return;
+        const messageText = collectorSubmitErrorText(err, {
+          id: String(from.user_id),
+          idLabel: "MAX ID",
+        });
+        if (messageText.startsWith("Не удалось принять")) {
+          console.error(err);
         }
-        if (messageText === "Collector is inactive") {
-          await ctx.reply("Ты скрыт в списке участников — напиши организатору.");
-          return;
-        }
-        if (messageText === "Period not found" || messageText === "Period is closed") {
-          await ctx.reply("Сейчас нет открытого периода — подожди организатора.");
-          return;
-        }
-        if (messageText === "Date is outside the open period") {
-          await ctx.reply("Сегодняшняя дата не входит в текущий период.");
-          return;
-        }
-        if (messageText === "This day was already submitted by another collector") {
-          const name =
-            err instanceof HttpError &&
-            typeof err.details?.collectorName === "string" &&
-            err.details.collectorName.trim().length > 0
-              ? err.details.collectorName.trim()
-              : undefined;
-          await ctx.reply(
-            name
-              ? `За этот день уже внёс ${name}. Вторая сдача от другого участника не принимается.`
-              : "За этот день уже внёс другой участник.",
-          );
-          return;
-        }
-        console.error(err);
-        await ctx.reply("Не удалось принять фото. Попробуй ещё раз или открой приложение.");
+        await ctx.reply(messageText);
       }
       return;
     }
-    const text = message.body.text?.trim() ?? "";
     if (!text || text.startsWith("/")) {
       if (/^\/start(?:@[\w]+)?$/i.test(text)) {
         await sendGreeting(ctx);
       }
+      return;
+    }
+    try {
+      const result = await intakeBotText(db, {
+        platform: "max",
+        userId: String(from.user_id),
+        text,
+      });
+      const reply = botIntakeReply(result);
+      if (reply) {
+        const url = getMiniAppUrl();
+        const keyboard = appKeyboard();
+        await ctx.reply(
+          reply,
+          url && keyboard && result.kind === "submitted" ? { attachments: [keyboard] } : undefined,
+        );
+        return;
+      }
+    } catch (err) {
+      const messageText = collectorSubmitErrorText(err, {
+        id: String(from.user_id),
+        idLabel: "MAX ID",
+      });
+      if (messageText.startsWith("Не удалось принять")) {
+        console.error(err);
+      }
+      await ctx.reply(messageText);
       return;
     }
     await sendGreeting(ctx);

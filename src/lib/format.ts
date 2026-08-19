@@ -189,7 +189,7 @@ const ERROR_RU: Record<string, string> = {
     "За этот день уже внёс другой участник",
   "Entry cannot be edited": "Эту запись уже нельзя менять — она на проверке или отклонена",
   "creditedByCollectorId must be a different collector": "Засчитать можно только за другого участника",
-  "kg must be greater than 0": "Укажите килограммы больше нуля",
+  "kg must be greater than 0": "Укажи суммарные кг по всем категориям ведомости",
   "storeTotalRub must be greater than 0": "Укажите сумму из счёта магазина",
   "Add kilograms or a photo": "Укажи кг или загрузи фото ведомости",
   "Photo is too large": "Фото слишком большое — до 8 МБ",
